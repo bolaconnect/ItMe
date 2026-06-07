@@ -3,30 +3,21 @@ import {
   User, Star, TrendingUp, Heart, Bell, Moon, Sun,
   Shield, LogOut, ChevronRight, Edit3, Check, X,
   BookOpen, Target, Repeat2, Wallet, Camera, Activity,
-  Ruler, Weight, Droplets, Zap,
+  Ruler, Weight, Droplets, Zap, LayoutTemplate,
 } from "lucide-react";
+import { auth } from "../../lib/firebase";
+import { signOut } from "firebase/auth";
+import { useAppStore } from "../store/useAppStore";
+import type { Page } from "./MainApp";
+import { subscribeSettings, updateSettings, updateUserProfileAuth, UserProfile, Setting, BodyMetrics } from "../../lib/settingsService";
+import { useEffect } from "react";
 
-/* ── Types ── */
-interface UserProfile {
-  name: string;
-  email: string;
-  bio: string;
-  avatar: string; // initials
-}
-
-interface Setting {
-  id: string;
-  label: string;
-  description: string;
-  enabled: boolean;
-}
-
-/* ── Mock data ── */
+/* ── Mock Fallbacks ── */
 const INITIAL_PROFILE: UserProfile = {
-  name: "Nguyễn Văn A",
-  email: "nguyenvana@email.com",
+  name: "Người dùng",
+  email: "",
   bio: "Sống có mục đích · Phát triển mỗi ngày",
-  avatar: "VA",
+  avatar: "A",
 };
 
 const INITIAL_SETTINGS: Setting[] = [
@@ -36,42 +27,16 @@ const INITIAL_SETTINGS: Setting[] = [
   { id: "notif_goal",   label: "Cập nhật mục tiêu",     description: "Báo cáo tiến độ mỗi tuần", enabled: true },
 ];
 
-const STATS = [
-  { label: "Streak hiện tại", value: "14 ngày", icon: Star,     color: "#F59E0B", bg: "#FFFBEB" },
-  { label: "Tỷ lệ hoàn thành", value: "87%",   icon: TrendingUp, color: "#10B981", bg: "#ECFDF5" },
-  { label: "Mục tiêu active",  value: "5",      icon: Target,   color: "var(--primary)", bg: "var(--secondary)" },
-];
-
-const QUICK_LINKS = [
-  { icon: Target,   label: "Mục tiêu của tôi",  sub: "5 mục tiêu đang theo dõi", page: "goals"  },
-  { icon: Repeat2,  label: "Thói quen hàng ngày", sub: "4 thói quen hôm nay",    page: "habits" },
-  { icon: Wallet,   label: "Tài chính",           sub: "Xem tổng quan thu chi",   page: "finance" },
-  { icon: BookOpen, label: "Ghi chú của tôi",     sub: "12 ghi chép",             page: "notes"  },
-];
-
-/* ── Body metrics types & data ── */
-interface BodyMetrics {
-  height: number;       // cm
-  weight: number;       // kg
-  bodyFat: number;      // %
-  muscleMass: number;   // kg
-  waist: number;        // cm
-  chest: number;        // cm
-  hip: number;          // cm
-  restingHR: number;    // bpm
-  updatedAt: string;    // "YYYY-MM-DD"
-}
-
 const INITIAL_METRICS: BodyMetrics = {
-  height: 172,
-  weight: 68,
-  bodyFat: 18,
-  muscleMass: 52,
-  waist: 78,
-  chest: 96,
-  hip: 94,
-  restingHR: 65,
-  updatedAt: new Date().toISOString().slice(0, 10),
+  height: 0,
+  weight: 0,
+  bodyFat: 0,
+  muscleMass: 0,
+  waist: 0,
+  chest: 0,
+  hip: 0,
+  restingHR: 0,
+  updatedAt: "",
 };
 
 function calcBMI(weight: number, height: number) {
@@ -80,6 +45,7 @@ function calcBMI(weight: number, height: number) {
 }
 
 function bmiLabel(bmi: number): { label: string; color: string } {
+  if (bmi === 0)  return { label: "Chưa rõ",       color: "#9CA3AF" };
   if (bmi < 18.5) return { label: "Thiếu cân",     color: "#3B82F6" };
   if (bmi < 23)   return { label: "Bình thường",   color: "#10B981" };
   if (bmi < 25)   return { label: "Thừa cân nhẹ",  color: "#F59E0B" };
@@ -169,6 +135,83 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
   );
 }
 
+/* ── Nav Customizer Modal ── */
+const AVAILABLE_TABS: { id: Page; label: string; icon: React.ElementType }[] = [
+  { id: "tasks",    label: "Việc làm",   icon: Check },
+  { id: "goals",    label: "Mục tiêu",   icon: Target },
+  { id: "habits",   label: "Thói quen",  icon: Repeat2 },
+  { id: "finance",  label: "Tài chính",  icon: Wallet },
+  { id: "notes",    label: "Ghi chú",    icon: BookOpen },
+  { id: "calendar", label: "Lịch",       icon: Calendar },
+  { id: "events",   label: "Sự kiện",    icon: CalendarDays },
+];
+import { Calendar, CalendarDays } from "lucide-react";
+
+function NavCustomizerModal({
+  currentTabs, onSave, onClose,
+}: {
+  currentTabs: Page[]; onSave: (tabs: Page[]) => void; onClose: () => void;
+}) {
+  const [selected, setSelected] = useState<Page[]>(currentTabs);
+
+  function toggle(id: Page) {
+    if (selected.includes(id)) {
+      if (selected.length <= 1) return; // Must have at least 1
+      setSelected(s => s.filter(x => x !== id));
+    } else {
+      if (selected.length >= 4) return; // Max 4
+      setSelected(s => [...s, id]);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border shrink-0">
+          <div>
+            <h3 className="text-foreground" style={{ fontWeight: 700 }}>Thanh điều hướng</h3>
+            <p className="text-muted-foreground mt-0.5" style={{ fontSize: "0.75rem" }}>Chọn 4 tính năng ưa thích ({selected.length}/4)</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
+        </div>
+        <div className="p-5 space-y-2">
+          {AVAILABLE_TABS.map(({ id, label, icon: Icon }) => {
+            const isSelected = selected.includes(id);
+            const disabled = !isSelected && selected.length >= 4;
+            return (
+              <button key={id} onClick={() => toggle(id)} disabled={disabled}
+                className={`w-full flex items-center justify-between p-3.5 rounded-xl border transition-all ${
+                  isSelected ? "bg-primary/10 border-primary/30" : disabled ? "opacity-50 cursor-not-allowed border-border" : "bg-card border-border hover:bg-muted"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isSelected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    <Icon size={16} />
+                  </div>
+                  <span className="text-foreground" style={{ fontWeight: 600, fontSize: "0.9375rem" }}>{label}</span>
+                </div>
+                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${isSelected ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground/30"}`}>
+                  {isSelected && <Check size={12} strokeWidth={3} />}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="px-5 pb-5 shrink-0">
+          <button
+            onClick={() => { onSave(selected); onClose(); }}
+            disabled={selected.length !== 4}
+            className={`w-full py-3 rounded-xl transition-all ${selected.length === 4 ? "bg-primary text-primary-foreground hover:opacity-90" : "bg-muted text-muted-foreground cursor-not-allowed"}`}
+            style={{ fontWeight: 600, fontSize: "0.875rem" }}>
+            Lưu thay đổi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Profile edit form ── */
 function EditProfileSheet({
   profile, onSave, onClose,
@@ -244,12 +287,56 @@ export function ProfilePage({
   const [editing,      setEditing]      = useState(false);
   const [metrics,      setMetrics]      = useState<BodyMetrics>(INITIAL_METRICS);
   const [editMetrics,  setEditMetrics]  = useState(false);
+  const [editNav,      setEditNav]      = useState(false);
+
+  const { bottomNavTabs, setBottomNavTabs, tasks, habits, goals } = useAppStore();
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    const unsub = subscribeSettings(uid, (data) => {
+      if (data.profile) setProfile(data.profile);
+      if (data.preferences) setSettings(data.preferences);
+      if (data.metrics) setMetrics(data.metrics);
+    });
+    return () => unsub();
+  }, [uid]);
+
+  // Compute STATS & QUICK_LINKS
+  const currentStreak = habits.length > 0 ? Math.max(...habits.map(h => h.streak)) : 0;
+  const doneTasks = tasks.filter(t => t.done).length;
+  const taskPct = tasks.length > 0 ? Math.round((doneTasks / tasks.length) * 100) : 0;
+  const activeGoals = goals.length;
+
+  const STATS = [
+    { label: "Streak hiện tại", value: `${currentStreak} ngày`, icon: Star,     color: "#F59E0B", bg: "#FFFBEB" },
+    { label: "Tỷ lệ hoàn thành", value: `${taskPct}%`,          icon: TrendingUp, color: "#10B981", bg: "#ECFDF5" },
+    { label: "Mục tiêu active",  value: `${activeGoals}`,       icon: Target,   color: "var(--primary)", bg: "var(--secondary)" },
+  ];
+
+  const QUICK_LINKS = [
+    { icon: Target,   label: "Mục tiêu của tôi",  sub: `${activeGoals} mục tiêu đang theo dõi`, page: "goals"  },
+    { icon: Repeat2,  label: "Thói quen hàng ngày", sub: `${habits.length} thói quen`,          page: "habits" },
+    { icon: Wallet,   label: "Tài chính",           sub: "Xem tổng quan thu chi",               page: "finance" },
+    { icon: BookOpen, label: "Ghi chú của tôi",     sub: "Tất cả ghi chép",                     page: "notes"  },
+  ];
+
+  // Ghi đè tên/email từ Firebase Auth nếu có
+  const currentUser = auth.currentUser;
+  const displayProfile = {
+    ...profile,
+    name: currentUser?.displayName || currentUser?.email?.split("@")[0] || profile.name,
+    email: currentUser?.email || profile.email,
+    avatar: (currentUser?.displayName || currentUser?.email || "A")[0].toUpperCase()
+  };
 
   const bmi = calcBMI(metrics.weight, metrics.height);
   const bmiInfo = bmiLabel(bmi);
 
   function toggleSetting(id: string) {
-    setSettings(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
+    const newSettings = settings.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s);
+    setSettings(newSettings);
+    if (uid) updateSettings(uid, { preferences: newSettings });
   }
 
   return (
@@ -261,16 +348,16 @@ export function ProfilePage({
           <div className="flex items-center gap-4">
             <div className="relative">
               <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <span className="text-primary" style={{ fontWeight: 700, fontSize: "1.25rem" }}>{profile.avatar}</span>
+                <span className="text-primary" style={{ fontWeight: 700, fontSize: "1.25rem" }}>{displayProfile.avatar}</span>
               </div>
               <button className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-sm">
                 <Camera size={11} />
               </button>
             </div>
             <div className="flex-1 min-w-0">
-              <h2 className="text-foreground truncate" style={{ fontWeight: 700, fontSize: "1.0625rem" }}>{profile.name}</h2>
-              <p className="text-muted-foreground truncate" style={{ fontSize: "0.8rem" }}>{profile.email}</p>
-              <p className="text-muted-foreground mt-0.5 truncate" style={{ fontSize: "0.775rem" }}>{profile.bio}</p>
+              <h2 className="text-foreground truncate" style={{ fontWeight: 700, fontSize: "1.0625rem" }}>{displayProfile.name}</h2>
+              <p className="text-muted-foreground truncate" style={{ fontSize: "0.8rem" }}>{displayProfile.email}</p>
+              <p className="text-muted-foreground mt-0.5 truncate" style={{ fontSize: "0.775rem" }}>{displayProfile.bio}</p>
             </div>
             <button
               onClick={() => setEditing(true)}
@@ -302,7 +389,9 @@ export function ProfilePage({
               <p className="text-foreground" style={{ fontWeight: 700, fontSize: "0.875rem" }}>Chỉ số cơ thể</p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>Cập nhật: {metrics.updatedAt}</span>
+              <span className="text-muted-foreground" style={{ fontSize: "0.7rem" }}>
+                {metrics.updatedAt ? `Cập nhật: ${metrics.updatedAt}` : "Chưa cập nhật"}
+              </span>
               <button
                 onClick={() => setEditMetrics(true)}
                 className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
@@ -318,7 +407,7 @@ export function ProfilePage({
               <div>
                 <p className="text-muted-foreground" style={{ fontSize: "0.72rem", fontWeight: 600 }}>CHỈ SỐ BMI</p>
                 <p className="text-foreground mt-0.5" style={{ fontWeight: 700, fontSize: "1.5rem" }}>
-                  {bmi.toFixed(1)}
+                  {bmi > 0 ? bmi.toFixed(1) : "--"}
                 </p>
               </div>
               <div className="text-right">
@@ -326,7 +415,7 @@ export function ProfilePage({
                   {bmiInfo.label}
                 </span>
                 <p className="text-muted-foreground mt-1.5" style={{ fontSize: "0.7rem" }}>
-                  {metrics.height} cm · {metrics.weight} kg
+                  {metrics.height > 0 ? `${metrics.height} cm` : "-- cm"} · {metrics.weight > 0 ? `${metrics.weight} kg` : "-- kg"}
                 </p>
               </div>
             </div>
@@ -335,10 +424,10 @@ export function ProfilePage({
           {/* Grid chỉ số */}
           <div className="px-4 pb-4 grid grid-cols-2 gap-2">
             {[
-              { icon: Droplets, label: "Mỡ cơ thể",  value: `${metrics.bodyFat}%`,      color: "#F97316", bg: "#FFF7ED" },
-              { icon: Zap,      label: "Khối cơ",     value: `${metrics.muscleMass} kg`, color: "#10B981", bg: "#ECFDF5" },
-              { icon: Activity, label: "Nhịp tim nghỉ", value: `${metrics.restingHR} bpm`, color: "#EF4444", bg: "#FEF2F2" },
-              { icon: Ruler,    label: "Vòng eo",     value: `${metrics.waist} cm`,      color: "#8B5CF6", bg: "#F5F3FF" },
+              { icon: Droplets, label: "Mỡ cơ thể",  value: metrics.bodyFat > 0 ? `${metrics.bodyFat}%` : "--",      color: "#F97316", bg: "#FFF7ED" },
+              { icon: Zap,      label: "Khối cơ",     value: metrics.muscleMass > 0 ? `${metrics.muscleMass} kg` : "--", color: "#10B981", bg: "#ECFDF5" },
+              { icon: Activity, label: "Nhịp tim nghỉ", value: metrics.restingHR > 0 ? `${metrics.restingHR} bpm` : "--", color: "#EF4444", bg: "#FEF2F2" },
+              { icon: Ruler,    label: "Vòng eo",     value: metrics.waist > 0 ? `${metrics.waist} cm` : "--",      color: "#8B5CF6", bg: "#F5F3FF" },
             ].map(({ icon: Icon, label, value, color, bg }) => (
               <div key={label} className="flex items-center gap-2.5 p-3 rounded-xl border border-border">
                 <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
@@ -357,9 +446,9 @@ export function ProfilePage({
             <p className="text-muted-foreground mb-2" style={{ fontSize: "0.72rem", fontWeight: 600 }}>SỐ ĐO VÒNG</p>
             <div className="flex gap-2">
               {[
-                { label: "Ngực", value: metrics.chest },
-                { label: "Eo",   value: metrics.waist },
-                { label: "Hông", value: metrics.hip },
+                { label: "Ngực", value: metrics.chest > 0 ? metrics.chest : "--" },
+                { label: "Eo",   value: metrics.waist > 0 ? metrics.waist : "--" },
+                { label: "Hông", value: metrics.hip > 0 ? metrics.hip : "--" },
               ].map(({ label, value }) => (
                 <div key={label} className="flex-1 text-center p-2.5 rounded-xl bg-muted/40">
                   <p className="text-foreground" style={{ fontWeight: 700, fontSize: "1rem" }}>{value}</p>
@@ -413,6 +502,24 @@ export function ProfilePage({
           ))}
         </div>
 
+        {/* ── Navigation Customizer ── */}
+        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center gap-2">
+            <LayoutTemplate size={15} className="text-muted-foreground" />
+            <p className="text-foreground" style={{ fontWeight: 700, fontSize: "0.875rem" }}>Giao diện điện thoại</p>
+          </div>
+          <button
+            onClick={() => setEditNav(true)}
+            className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-muted transition-colors text-left"
+          >
+            <div>
+              <p className="text-foreground" style={{ fontWeight: 600, fontSize: "0.875rem" }}>Thanh điều hướng dưới</p>
+              <p className="text-muted-foreground" style={{ fontSize: "0.775rem" }}>Tùy chỉnh 4 tab truy cập nhanh</p>
+            </div>
+            <ChevronRight size={15} className="text-muted-foreground" />
+          </button>
+        </div>
+
         {/* ── Appearance ── */}
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
           <div className="px-4 py-3 border-b border-border flex items-center gap-2">
@@ -452,7 +559,9 @@ export function ProfilePage({
         </div>
 
         {/* ── Logout ── */}
-        <button className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-destructive/40 text-destructive hover:bg-destructive/5 transition-colors"
+        <button
+          onClick={() => signOut(auth)}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-destructive/40 text-destructive hover:bg-destructive/5 transition-colors"
           style={{ fontWeight: 600, fontSize: "0.875rem" }}>
           <LogOut size={16} />
           Đăng xuất
@@ -466,7 +575,13 @@ export function ProfilePage({
       {editing && (
         <EditProfileSheet
           profile={profile}
-          onSave={setProfile}
+          onSave={async (p) => {
+            setProfile(p);
+            if (uid) {
+              await updateSettings(uid, { profile: p });
+              await updateUserProfileAuth(p.name);
+            }
+          }}
           onClose={() => setEditing(false)}
         />
       )}
@@ -474,8 +589,19 @@ export function ProfilePage({
       {editMetrics && (
         <BodyMetricsModal
           metrics={metrics}
-          onSave={setMetrics}
+          onSave={async (m) => {
+            setMetrics(m);
+            if (uid) await updateSettings(uid, { metrics: m });
+          }}
           onClose={() => setEditMetrics(false)}
+        />
+      )}
+
+      {editNav && (
+        <NavCustomizerModal
+          currentTabs={bottomNavTabs}
+          onSave={setBottomNavTabs}
+          onClose={() => setEditNav(false)}
         />
       )}
     </div>

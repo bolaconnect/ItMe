@@ -1,15 +1,15 @@
 import { useState, useEffect } from "react";
 import { Trash2 } from "lucide-react";
 import { Sheet, FormField, FormInput, FormSelect, FormActions } from "../Sheet";
-import { CATEGORIES, PRIORITY_LABEL, nextId } from "./taskData";
+import { CATEGORIES, PRIORITY_LABEL } from "./taskData";
 import type { Task, Priority } from "./taskData";
 
 interface TaskFormProps {
   open:     boolean;
   editing?: Task | null;
   onClose:  () => void;
-  onSave:   (task: Task) => void;
-  onDelete?: (id: number) => void;
+  onSave:   (task: Partial<Task> & Omit<Task, "id" | "createdAt">) => void;
+  onDelete?: (id: string) => void;
   tasks:    Task[];
   defaultDate?: string;
 }
@@ -39,7 +39,7 @@ export function TaskForm({ open, editing, onClose, onSave, onDelete, tasks, defa
     e.preventDefault();
     if (!title.trim()) { setErr("Nhập tên công việc"); return; }
     onSave({
-      id:          editing?.id ?? nextId(tasks),
+      id:          editing?.id, // Có thể undefined nếu thêm mới
       title:       title.trim(),
       description: desc.trim(),
       done:        editing?.done ?? false,

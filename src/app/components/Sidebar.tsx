@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   LayoutDashboard, CheckSquare, Target, Repeat2,
   Wallet, StickyNote, ChevronLeft, ChevronRight,
-  Sparkles, User, Settings, Calendar,
+  Sparkles, User, Settings, Calendar, CalendarDays
 } from "lucide-react";
 import type { Page } from "./MainApp";
 
@@ -14,6 +14,7 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "finance",   label: "Tài chính",  icon: Wallet },
   { id: "notes",     label: "Ghi chú",    icon: StickyNote },
   { id: "calendar",  label: "Lịch",       icon: Calendar },
+  { id: "events",    label: "Sự kiện",    icon: CalendarDays },
   { id: "profile",   label: "Bản thân",   icon: User },
 ];
 

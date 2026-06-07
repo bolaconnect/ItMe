@@ -1,38 +1,16 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { LunarCountdownBadge } from "./LunarCountdown";
 import {
   Plus, Target, Trophy, Flame, TrendingUp, X, Check,
   ChevronRight, Calendar, MoreHorizontal, Pencil, Trash2,
 } from "lucide-react";
+import { auth } from "../../lib/firebase";
+import { subscribeGoals, addGoal, updateGoal, deleteGoal as deleteGoalFromFirebase, Goal, GoalCategory } from "../../lib/goalsService";
+import { useAppStore } from "../store/useAppStore";
+import { Loader2 } from "lucide-react";
 
-/* ── Types ── */
-type Category = "Sức khỏe" | "Công việc" | "Học tập" | "Tài chính" | "Cá nhân";
-type Status = "active" | "done" | "paused";
-
-interface Goal {
-  id: number;
-  title: string;
-  desc: string;
-  category: Category;
-  target: number;
-  current: number;
-  unit: string;
-  deadline: string;
-  status: Status;
-}
-
-/* ── Seed data ── */
-const INITIAL_GOALS: Goal[] = [
-  { id: 1, title: "Chạy bộ mỗi tuần", desc: "Duy trì thói quen chạy bộ để cải thiện sức khỏe", category: "Sức khỏe", target: 20, current: 14, unit: "km", deadline: "2025-12-31", status: "active" },
-  { id: 2, title: "Đọc sách mỗi tháng", desc: "Mở rộng kiến thức qua sách chuyên ngành", category: "Học tập", target: 12, current: 7, unit: "cuốn", deadline: "2025-12-31", status: "active" },
-  { id: 3, title: "Tiết kiệm cho chuyến du lịch", desc: "Du lịch Nhật Bản vào cuối năm", category: "Tài chính", target: 30000, current: 18500, unit: "k", deadline: "2025-11-01", status: "active" },
-  { id: 4, title: "Hoàn thành khóa React Advanced", desc: "Nâng cao kỹ năng frontend", category: "Công việc", target: 40, current: 40, unit: "bài", deadline: "2025-09-01", status: "done" },
-  { id: 5, title: "Thiền 10 phút mỗi ngày", desc: "Cải thiện tinh thần và tập trung", category: "Cá nhân", target: 30, current: 12, unit: "ngày", deadline: "2025-07-31", status: "active" },
-  { id: 6, title: "Giảm 5kg", desc: "Đạt cân nặng lý tưởng bằng ăn uống + tập luyện", category: "Sức khỏe", target: 5, current: 2, unit: "kg", deadline: "2025-10-01", status: "active" },
-];
-
-const CAT_COLOR: Record<Category, { text: string; bg: string }> = {
+const CAT_COLOR: Record<GoalCategory, { text: string; bg: string }> = {
   "Sức khỏe": { text: "#10B981", bg: "#ECFDF5" },
   "Công việc": { text: "var(--primary)", bg: "var(--secondary)" },
   "Học tập":   { text: "#3B82F6", bg: "#EFF6FF" },
@@ -40,7 +18,7 @@ const CAT_COLOR: Record<Category, { text: string; bg: string }> = {
   "Cá nhân":   { text: "#8B5CF6", bg: "#F5F3FF" },
 };
 
-const CATEGORIES: Category[] = ["Sức khỏe", "Công việc", "Học tập", "Tài chính", "Cá nhân"];
+const CATEGORIES: GoalCategory[] = ["Sức khỏe", "Công việc", "Học tập", "Tài chính", "Cá nhân"];
 
 /* ── Progress ring (svg) ── */
 function ProgressRing({ pct, size = 52, stroke = 5, color }: { pct: number; size?: number; stroke?: number; color: string }) {
@@ -61,20 +39,19 @@ function ProgressRing({ pct, size = 52, stroke = 5, color }: { pct: number; size
   );
 }
 
-/* ── Goal Form modal ── */
 function GoalForm({
   initial,
   onSave,
   onClose,
 }: {
   initial: Partial<Goal> | null;
-  onSave: (g: Goal) => void;
+  onSave: (g: Partial<Goal> & Omit<Goal, "id" | "createdAt">) => void;
   onClose: () => void;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [title, setTitle]       = useState(initial?.title ?? "");
   const [desc, setDesc]         = useState(initial?.desc ?? "");
-  const [category, setCategory] = useState<Category>(initial?.category ?? "Cá nhân");
+  const [category, setCategory] = useState<GoalCategory>(initial?.category ?? "Cá nhân");
   const [target, setTarget]     = useState(String(initial?.target ?? ""));
   const [current, setCurrent]   = useState(String(initial?.current ?? "0"));
   const [unit, setUnit]         = useState(initial?.unit ?? "");
@@ -84,7 +61,7 @@ function GoalForm({
     e.preventDefault();
     if (!title.trim() || !target) return;
     onSave({
-      id: initial?.id ?? Date.now(),
+      id: initial?.id, // Có thể undefined nếu là thêm mới
       title: title.trim(),
       desc: desc.trim(),
       category,
@@ -141,7 +118,7 @@ function GoalForm({
               <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Danh mục</label>
               <select
                 className="input-base"
-                value={category} onChange={e => setCategory(e.target.value as Category)}
+                value={category} onChange={e => setCategory(e.target.value as GoalCategory)}
               >
                 {CATEGORIES.map(c => <option key={c}>{c}</option>)}
               </select>
@@ -200,7 +177,6 @@ function GoalForm({
   );
 }
 
-/* ── Goal Card ── */
 function GoalCard({
   goal,
   onEdit,
@@ -209,13 +185,13 @@ function GoalCard({
 }: {
   goal: Goal;
   onEdit: (g: Goal) => void;
-  onDelete: (id: number) => void;
-  onUpdateProgress: (id: number, delta: number) => void;
+  onDelete: (id: string) => void;
+  onUpdateProgress: (id: string, delta: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const pct = Math.min(Math.round((goal.current / goal.target) * 100), 100);
+  const pct = Math.min(Math.floor((goal.current / goal.target) * 100), 100);
   const color = CAT_COLOR[goal.category].text;
-  const isDone = goal.status === "done" || pct >= 100;
+  const isDone = goal.status === "done" || goal.current >= goal.target;
 
   const daysLeft = Math.ceil(
     (new Date(goal.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
@@ -341,14 +317,27 @@ function GoalCard({
 
 /* ── Main page ── */
 export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
-  const [goals, setGoals]       = useState<Goal[]>(INITIAL_GOALS);
+  const { goals, setGoals }     = useAppStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing]   = useState<Goal | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    setIsLoading(true);
+    const unsubscribe = subscribeGoals(uid, (data) => {
+      setGoals(data);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
+  }, [uid, setGoals]);
 
   function openModal()  { setFormOpen(true);  onModal?.(true);  }
   function closeModal() { setFormOpen(false); onModal?.(false); }
   const [filter, setFilter]     = useState<"all" | "active" | "done">("all");
-  const [catFilter, setCatFilter] = useState<Category | "all">("all");
+  const [catFilter, setCatFilter] = useState<GoalCategory | "all">("all");
 
   const active  = goals.filter(g => g.status !== "done" && (g.current / g.target) < 1);
   const done    = goals.filter(g => g.status === "done" || g.current >= g.target);
@@ -363,25 +352,35 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
     return statusOk && catOk;
   });
 
-  function saveGoal(g: Goal) {
-    setGoals(prev => {
-      const idx = prev.findIndex(x => x.id === g.id);
-      return idx >= 0 ? prev.map(x => x.id === g.id ? g : x) : [g, ...prev];
-    });
+  async function saveGoal(g: Partial<Goal> & Omit<Goal, "id" | "createdAt">) {
+    if (!uid) return;
+    const { id, ...goalData } = g;
+    
+    if (id) {
+      await updateGoal(uid, id, goalData);
+    } else {
+      await addGoal(uid, goalData as Omit<Goal, "id" | "createdAt">);
+    }
     setFormOpen(false);
     setEditing(null);
   }
 
-  function deleteGoal(id: number) {
-    setGoals(prev => prev.filter(g => g.id !== id));
+  async function deleteGoal(id: string) {
+    if (!uid) return;
+    if (confirm("Bạn có chắc chắn muốn xóa mục tiêu này?")) {
+      await deleteGoalFromFirebase(uid, id);
+    }
   }
 
-  function updateProgress(id: number, delta: number) {
-    setGoals(prev => prev.map(g => {
-      if (g.id !== id) return g;
-      const next = Math.min(g.current + delta, g.target);
-      return { ...g, current: next, status: next >= g.target ? "done" : g.status };
-    }));
+  async function updateProgress(id: string, delta: number) {
+    if (!uid) return;
+    const goal = goals.find(x => x.id === id);
+    if (!goal) return;
+    const next = Math.min(goal.current + delta, goal.target);
+    await updateGoal(uid, id, { 
+      current: next, 
+      status: next >= goal.target ? "done" : goal.status 
+    });
   }
 
   function openAdd()           { setEditing(null); openModal(); }
@@ -480,43 +479,49 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Goal list ── */}
         <div className="flex-1 overflow-y-auto px-4 lg:px-6 pb-24 lg:pb-6">
-          <AnimatePresence>
-            {visible.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                className="flex flex-col items-center justify-center py-20 gap-3 text-center"
-              >
-                <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
-                  <Target size={24} className="text-muted-foreground" />
-                </div>
-                <p className="text-foreground" style={{ fontWeight: 600 }}>Chưa có mục tiêu nào</p>
-                <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>
-                  Thêm mục tiêu đầu tiên để bắt đầu hành trình!
-                </p>
-                <button
-                  onClick={openAdd}
-                  className="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground"
-                  style={{ fontWeight: 600, fontSize: "0.875rem" }}
+          {isLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <Loader2 className="animate-spin text-primary" size={24} />
+            </div>
+          ) : (
+            <AnimatePresence>
+              {visible.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-20 gap-3 text-center"
                 >
-                  <Plus size={16} /> Thêm mục tiêu
-                </button>
-              </motion.div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 pt-1">
-                <AnimatePresence>
-                  {visible.map(goal => (
-                    <GoalCard
-                      key={goal.id}
-                      goal={goal}
-                      onEdit={openEdit}
-                      onDelete={deleteGoal}
-                      onUpdateProgress={updateProgress}
-                    />
-                  ))}
-                </AnimatePresence>
-              </div>
-            )}
-          </AnimatePresence>
+                  <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
+                    <Target size={24} className="text-muted-foreground" />
+                  </div>
+                  <p className="text-foreground" style={{ fontWeight: 600 }}>Chưa có mục tiêu nào</p>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>
+                    Thêm mục tiêu đầu tiên để bắt đầu hành trình!
+                  </p>
+                  <button
+                    onClick={openAdd}
+                    className="mt-2 flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground"
+                    style={{ fontWeight: 600, fontSize: "0.875rem" }}
+                  >
+                    <Plus size={16} /> Thêm mục tiêu
+                  </button>
+                </motion.div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 pt-1">
+                  <AnimatePresence>
+                    {visible.map(goal => (
+                      <GoalCard
+                        key={goal.id}
+                        goal={goal}
+                        onEdit={openEdit}
+                        onDelete={deleteGoal}
+                        onUpdateProgress={updateProgress}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+            </AnimatePresence>
+          )}
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   CheckSquare, Target, Repeat2, Wallet,
   ArrowRight, CheckCircle2, Circle, Flame,
@@ -9,55 +9,19 @@ import { LunarCountdownCard } from "./LunarCountdown";
 import { motion } from "motion/react";
 import { AreaChart, Area, ResponsiveContainer, Tooltip } from "recharts";
 import type { Page } from "./MainApp";
+import { useAppStore } from "../store/useAppStore";
+import { auth } from "../../lib/firebase";
+import { subscribeNotes, Note } from "../../lib/notesService";
+import { subscribeIncome, subscribeExpense, FinItem } from "../../lib/financeService";
+import type { IncomeItem, ExpenseItem } from "./finance/financeStore";
+import type { Priority } from "./tasks/taskData";
 
-/* ── Static data ── */
-const tasks = [
-  { id: 1, title: "Hoàn thiện báo cáo Q2",      done: true,  priority: "high" },
-  { id: 2, title: "Đọc sách 30 phút",            done: true,  priority: "low" },
-  { id: 3, title: "Gọi điện cho khách hàng ABC", done: false, priority: "high" },
-  { id: 4, title: "Tập thể dục buổi chiều",      done: false, priority: "medium" },
-  { id: 5, title: "Review pull request #47",     done: false, priority: "medium" },
-];
+function toISO(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const TODAY = toISO(new Date());
 
-const habits = [
-  { id: 1, name: "Uống đủ 2L nước", streak: 12, done: true },
-  { id: 2, name: "Thiền 10 phút",   streak: 7,  done: true },
-  { id: 3, name: "Tập thể dục",     streak: 3,  done: false },
-  { id: 4, name: "Đọc sách",        streak: 12, done: false },
-];
-
-const goals = [
-  { name: "Học tiếng Anh B2",    progress: 72, color: "#5B4CF5" },
-  { name: "Chạy bộ 100km/tháng", progress: 45, color: "#FF8A65" },
-  { name: "Tiết kiệm 50 triệu",  progress: 88, color: "#22c55e" },
-];
-
-const finance = [
-  { label: "Thu nhập",  value: "18,500,000đ", trend: "up",   note: "+5% so tháng trước" },
-  { label: "Chi tiêu",  value: "20,900,000đ", trend: "down", note: "+12% so tháng trước" },
-  { label: "Tiết kiệm", value: "3,200,000đ",  trend: "up",   note: "Mục tiêu: 5,000,000đ" },
-];
-
-const spendingData = [
-  { day: "T2", value: 450 }, { day: "T3", value: 820 }, { day: "T4", value: 320 },
-  { day: "T5", value: 1100 }, { day: "T6", value: 670 }, { day: "T7", value: 950 }, { day: "CN", value: 430 },
-];
-
-const recentNotes = [
-  { id: 1, title: "Ý tưởng cho dự án mới", preview: "Xây dựng app quản lý tài chính cá nhân...", time: "5 phút trước" },
-  { id: 2, title: "Lịch học tiếng Anh",    preview: "Grammar: Past perfect, Vocabulary 20 từ...", time: "2 giờ trước" },
-];
-
-const todayEvents = (() => {
-  const d = new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long" });
-  return [
-    { id: 1, title: "Họp team weekly",     time: "09:00", color: "var(--primary)" },
-    { id: 2, title: "Review code sprint",  time: "14:00", color: "#10B981" },
-    { id: 3, title: "Tập thể dục",         time: "18:00", color: "#F59E0B" },
-  ];
-})();
-
-const pColor: Record<string, string> = { high: "bg-red-400", medium: "bg-yellow-400", low: "bg-green-400" };
+const pColor: Record<Priority, string> = { high: "bg-red-400", medium: "bg-yellow-400", low: "bg-green-400" };
 
 /* ── Greeting ── */
 function greeting() {
@@ -87,9 +51,79 @@ function SectionHeader({ title, onMore }: { title: string; onMore: () => void })
 interface DashboardProps { onNavigate: (p: Page) => void; }
 
 export function Dashboard({ onNavigate }: DashboardProps) {
-  const done  = tasks.filter(t => t.done).length;
-  const total = tasks.length;
-  const pct   = Math.round((done / total) * 100);
+  const { tasks, habits, goals, events } = useAppStore();
+  const uid = auth.currentUser?.uid;
+  const username = auth.currentUser?.displayName?.split(" ")[0] || "bạn";
+
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [incomes, setIncomes] = useState<FinItem<IncomeItem>[]>([]);
+  const [expenses, setExpenses] = useState<FinItem<ExpenseItem>[]>([]);
+
+  useEffect(() => {
+    if (!uid) return;
+    const unsubNotes = subscribeNotes(uid, setNotes);
+    const unsubInc = subscribeIncome(uid, setIncomes);
+    const unsubExp = subscribeExpense(uid, setExpenses);
+    return () => {
+      unsubNotes();
+      unsubInc();
+      unsubExp();
+    };
+  }, [uid]);
+
+  // Compute Tasks
+  const todayTasks = useMemo(() => tasks.filter(t => !t.done || t.dueDate === TODAY), [tasks]);
+  const done = todayTasks.filter(t => t.done).length;
+  const total = todayTasks.length;
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  // Compute Events
+  const todayEvents = useMemo(() => events.filter(e => e.date === TODAY).sort((a, b) => (a.time || "").localeCompare(b.time || "")), [events]);
+
+  // Compute Habits (Top 4)
+  const topHabits = useMemo(() => {
+    return [...habits].sort((a, b) => b.streak - a.streak).slice(0, 4);
+  }, [habits]);
+
+  const activeHabits = habits.filter(h => !h.completedDates.includes(TODAY)).length;
+
+  // Compute Goals (Top 3)
+  const topGoals = useMemo(() => goals.slice(0, 3), [goals]);
+  const activeGoals = goals.length;
+
+  // Compute Notes (Top 2)
+  const recentNotes = useMemo(() => notes.slice(0, 2), [notes]);
+
+  // Compute Finance
+  const financeData = useMemo(() => {
+    const currentMonth = TODAY.substring(0, 7); // YYYY-MM
+    let incSum = 0;
+    let expSum = 0;
+    incomes.forEach(i => { if (i.date.startsWith(currentMonth)) incSum += i.amount; });
+    expenses.forEach(e => { if (e.date.startsWith(currentMonth)) expSum += e.amount; });
+
+    // Weekly spending chart (last 7 days)
+    const chartData = [];
+    let weekTotal = 0;
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const ds = toISO(d);
+      const dayLabel = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"][d.getDay()];
+      let sum = 0;
+      expenses.forEach(e => { if (e.date === ds) sum += e.amount; });
+      chartData.push({ day: dayLabel, value: sum / 1000 }); // Value in k (nghìn)
+      weekTotal += sum;
+    }
+
+    return { incSum, expSum, net: incSum - expSum, chartData, weekTotal };
+  }, [incomes, expenses]);
+
+  function formatMoney(n: number) {
+    if (n >= 1000000) return (n / 1000000).toFixed(1) + "tr";
+    if (n >= 1000) return (n / 1000).toFixed(0) + "k";
+    return n.toString();
+  }
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-6xl mx-auto pb-24 lg:pb-6">
@@ -100,7 +134,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           {new Date().toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
         </p>
         <h1 className="text-foreground" style={{ fontSize: "1.5rem", fontWeight: 800, letterSpacing: "-0.02em" }}>
-          {greeting()}, Minh! 👋
+          {greeting()}, {username}! 👋
         </h1>
       </motion.div>
 
@@ -108,9 +142,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {[
           { label: "Việc hôm nay",     value: `${done}/${total}`,  sub: `${pct}% hoàn thành`,     icon: CheckSquare, color: "#3B82F6",        bg: "#EFF6FF",        page: "tasks" as Page },
-          { label: "Mục tiêu active",  value: "4",                  sub: "2 sắp hoàn thành",       icon: Target,      color: "var(--primary)", bg: "var(--secondary)", page: "goals" as Page },
-          { label: "Chuỗi thói quen",  value: "12 🔥",              sub: "Kỷ lục: 21 ngày",        icon: Flame,       color: "#F59E0B",        bg: "#FFFBEB",        page: "habits" as Page },
-          { label: "Tháng này",        value: "−2.4tr",             sub: "Chi nhiều hơn thu",      icon: Wallet,      color: "#EF4444",        bg: "#FEF2F2",        page: "finance" as Page },
+          { label: "Mục tiêu active",  value: `${activeGoals}`,    sub: "Đang tiến triển",        icon: Target,      color: "var(--primary)", bg: "var(--secondary)", page: "goals" as Page },
+          { label: "Thói quen cần làm",value: `${activeHabits}`,   sub: "Chưa hoàn thành hôm nay",icon: Flame,       color: "#F59E0B",        bg: "#FFFBEB",        page: "habits" as Page },
+          { label: "Thu chi tháng này",value: formatMoney(financeData.net), sub: financeData.net >= 0 ? "Dương" : "Âm", icon: Wallet, color: financeData.net >= 0 ? "#10B981" : "#EF4444", bg: financeData.net >= 0 ? "#ECFDF5" : "#FEF2F2", page: "finance" as Page },
         ].map(({ label, value, sub, icon: Icon, color, bg, page }, i) => (
           <motion.button
             key={label}
@@ -156,8 +190,9 @@ export function Dashboard({ onNavigate }: DashboardProps) {
             </div>
           </div>
           <ul className="space-y-1">
-            {tasks.map(t => (
+            {todayTasks.slice(0, 5).map(t => (
               <li key={t.id}
+                onClick={() => onNavigate("tasks")}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors cursor-pointer group">
                 {t.done
                   ? <CheckCircle2 size={17} className="text-green-500 shrink-0" />
@@ -170,6 +205,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
                 <span className={`w-2 h-2 rounded-full shrink-0 ${pColor[t.priority]}`} />
               </li>
             ))}
+            {todayTasks.length === 0 && <p className="text-muted-foreground text-center py-4" style={{ fontSize: "0.875rem" }}>Bạn chưa có việc nào hôm nay.</p>}
           </ul>
           <button onClick={() => onNavigate("tasks")}
             className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
@@ -183,16 +219,17 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           <SectionHeader title="Lịch hôm nay" onMore={() => onNavigate("calendar" as Page)} />
           <ul className="mt-4 space-y-2">
             {todayEvents.map(ev => (
-              <li key={ev.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors cursor-pointer">
+              <li key={ev.id} onClick={() => onNavigate("events" as Page)} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted transition-colors cursor-pointer">
                 <div className="w-1.5 h-8 rounded-full flex-shrink-0" style={{ background: ev.color }} />
                 <div className="flex-1 min-w-0">
                   <p className="text-foreground truncate" style={{ fontSize: "0.875rem", fontWeight: 600 }}>{ev.title}</p>
                   <p className="text-muted-foreground flex items-center gap-1" style={{ fontSize: "0.775rem" }}>
-                    <Clock size={10} />{ev.time}
+                    <Clock size={10} />{ev.time || "Cả ngày"}
                   </p>
                 </div>
               </li>
             ))}
+            {todayEvents.length === 0 && <p className="text-muted-foreground text-center py-4" style={{ fontSize: "0.875rem" }}>Không có lịch trình nào.</p>}
           </ul>
           <button onClick={() => onNavigate("calendar" as Page)}
             className="mt-3 w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
@@ -207,42 +244,44 @@ export function Dashboard({ onNavigate }: DashboardProps) {
 
         {/* Habits */}
         <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-5">
-          <SectionHeader title="Thói quen" onMore={() => onNavigate("habits")} />
+          <SectionHeader title="Thói quen nổi bật" onMore={() => onNavigate("habits")} />
           <ul className="mt-4 space-y-3">
-            {habits.map(h => (
-              <li key={h.id} className="flex items-center gap-3 cursor-pointer group">
-                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
-                  h.done ? "border-green-500 bg-green-50" : "border-border group-hover:border-muted-foreground"
-                }`}>
-                  {h.done && <CheckCircle2 size={14} className="text-green-500" />}
-                </div>
-                <p className={`flex-1 ${h.done ? "text-muted-foreground line-through" : "text-foreground"}`}
-                  style={{ fontSize: "0.875rem" }}>
-                  {h.name}
-                </p>
-                <span className="flex items-center gap-0.5 text-orange-500" style={{ fontSize: "0.775rem", fontWeight: 600 }}>
-                  <Flame size={11} />{h.streak}
-                </span>
-              </li>
-            ))}
+            {topHabits.map(h => {
+              const doneToday = h.completedDates.includes(TODAY);
+              return (
+                <li key={h.id} onClick={() => onNavigate("habits")} className="flex items-center gap-3 cursor-pointer group">
+                  <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${
+                    doneToday ? "border-green-500 bg-green-50" : "border-border group-hover:border-muted-foreground"
+                  }`}>
+                    {doneToday && <CheckCircle2 size={14} className="text-green-500" />}
+                  </div>
+                  <p className={`flex-1 ${doneToday ? "text-muted-foreground line-through" : "text-foreground"}`}
+                    style={{ fontSize: "0.875rem", fontWeight: 500 }}>
+                    {h.name}
+                  </p>
+                  <span className="flex items-center gap-0.5 text-orange-500" style={{ fontSize: "0.775rem", fontWeight: 600 }}>
+                    <Flame size={11} />{h.streak}
+                  </span>
+                </li>
+              );
+            })}
+            {topHabits.length === 0 && <p className="text-muted-foreground text-center py-4" style={{ fontSize: "0.875rem" }}>Bạn chưa có thói quen nào.</p>}
           </ul>
         </div>
 
         {/* Spending mini chart */}
         <div className="lg:col-span-3 bg-card rounded-2xl border border-border p-5">
-          <SectionHeader title="Chi tiêu tuần này" onMore={() => onNavigate("finance")} />
+          <SectionHeader title="Chi tiêu 7 ngày qua" onMore={() => onNavigate("finance")} />
           <div className="mt-1 mb-2 flex items-end justify-between">
             <div>
-              <p className="text-foreground" style={{ fontSize: "1.375rem", fontWeight: 800, letterSpacing: "-0.02em" }}>4,740,000đ</p>
-              <p className="text-muted-foreground flex items-center gap-1" style={{ fontSize: "0.8rem" }}>
-                <TrendingUp size={12} className="text-red-500" />
-                <span className="text-red-500 font-medium">+12%</span> so tuần trước
+              <p className="text-foreground" style={{ fontSize: "1.375rem", fontWeight: 800, letterSpacing: "-0.02em" }}>
+                {financeData.weekTotal.toLocaleString()}đ
               </p>
             </div>
             <div className="flex gap-3">
               {[
-                { label: "Thu", value: "18.5tr", color: "#10B981" },
-                { label: "Chi", value: "20.9tr", color: "#EF4444" },
+                { label: "Thu tháng này", value: formatMoney(financeData.incSum), color: "#10B981" },
+                { label: "Chi tháng này", value: formatMoney(financeData.expSum), color: "#EF4444" },
               ].map(({ label, value, color }) => (
                 <div key={label} className="text-right">
                   <p style={{ fontSize: "0.7rem", color: "var(--muted-foreground)" }}>{label}</p>
@@ -253,7 +292,7 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           </div>
           <div style={{ height: "80px" }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={spendingData} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+              <AreaChart data={financeData.chartData} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
                 <defs>
                   <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="var(--primary)" stopOpacity={0.18} />
@@ -283,23 +322,27 @@ export function Dashboard({ onNavigate }: DashboardProps) {
         <div className="bg-card rounded-2xl border border-border p-5">
           <SectionHeader title="Mục tiêu" onMore={() => onNavigate("goals")} />
           <div className="mt-4 space-y-4">
-            {goals.map(g => (
-              <div key={g.name}>
-                <div className="flex justify-between mb-1.5">
-                  <span className="text-foreground truncate mr-2" style={{ fontSize: "0.875rem" }}>{g.name}</span>
-                  <span className="text-muted-foreground flex-shrink-0" style={{ fontSize: "0.8rem", fontWeight: 600 }}>{g.progress}%</span>
+            {topGoals.map(g => {
+              const prg = g.target ? Math.min(100, Math.round((g.current / g.target) * 100)) : 0;
+              return (
+                <div key={g.id} onClick={() => onNavigate("goals")} className="cursor-pointer">
+                  <div className="flex justify-between mb-1.5">
+                    <span className="text-foreground truncate mr-2" style={{ fontSize: "0.875rem", fontWeight: 500 }}>{g.name}</span>
+                    <span className="text-muted-foreground flex-shrink-0" style={{ fontSize: "0.8rem", fontWeight: 600 }}>{prg}%</span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full rounded-full"
+                      style={{ backgroundColor: g.color }}
+                      initial={{ width: 0 }}
+                      animate={{ width: `${prg}%` }}
+                      transition={{ duration: 0.8 }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{ backgroundColor: g.color }}
-                    initial={{ width: 0 }}
-                    animate={{ width: `${g.progress}%` }}
-                    transition={{ duration: 0.8 }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
+            {topGoals.length === 0 && <p className="text-muted-foreground text-center py-2" style={{ fontSize: "0.875rem" }}>Chưa có mục tiêu nào.</p>}
           </div>
         </div>
 
@@ -309,22 +352,22 @@ export function Dashboard({ onNavigate }: DashboardProps) {
           <div className="mt-4 space-y-2">
             {recentNotes.map(n => (
               <button key={n.id} onClick={() => onNavigate("notes")}
-                className="w-full text-left p-3 rounded-xl hover:bg-muted transition-colors">
+                className="w-full text-left p-3 rounded-xl hover:bg-muted transition-colors border border-border">
                 <div className="flex items-start gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <FileText size={14} style={{ color: "var(--primary)" }} />
+                    <FileText size={14} style={{ color: n.color || "var(--primary)" }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-foreground truncate" style={{ fontWeight: 600, fontSize: "0.875rem" }}>{n.title}</p>
-                    <p className="text-muted-foreground truncate" style={{ fontSize: "0.775rem" }}>{n.preview}</p>
-                    <p className="text-muted-foreground/60" style={{ fontSize: "0.7rem", marginTop: "2px" }}>{n.time}</p>
+                    <p className="text-foreground truncate" style={{ fontWeight: 600, fontSize: "0.875rem" }}>{n.title || "Không có tiêu đề"}</p>
+                    <p className="text-muted-foreground truncate" style={{ fontSize: "0.775rem" }}>{n.content.replace(/<[^>]*>?/gm, '')}</p>
                   </div>
                 </div>
               </button>
             ))}
+            {recentNotes.length === 0 && <p className="text-muted-foreground text-center py-2" style={{ fontSize: "0.875rem" }}>Chưa có ghi chú nào.</p>}
             <button onClick={() => onNavigate("notes")}
               className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors"
-              style={{ fontSize: "0.875rem" }}>
+              style={{ fontSize: "0.875rem", marginTop: recentNotes.length > 0 ? "8px" : "0" }}>
               <Plus size={14} /> Thêm ghi chú
             </button>
           </div>

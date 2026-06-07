@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { LunarCountdownBadge } from "./LunarCountdown";
 import {
@@ -7,21 +7,11 @@ import {
   Sun, Moon, Coffee, Dumbbell, Book, Heart, Droplets, Music,
 } from "lucide-react";
 
-/* ── Types ── */
-type Frequency = "daily" | "weekdays" | "weekends";
-type HabitIcon = "sun" | "moon" | "coffee" | "dumbbell" | "book" | "heart" | "droplets" | "music" | "zap" | "flame";
-
-interface Habit {
-  id: number;
-  name: string;
-  desc: string;
-  icon: HabitIcon;
-  color: string;
-  frequency: Frequency;
-  streak: number;
-  best: number;
-  completedDates: string[]; // ISO date strings
-}
+import { useAppStore } from "../store/useAppStore";
+import type { Habit, HabitIcon, Frequency } from "../store/useAppStore";
+import { auth } from "../../lib/firebase";
+import { subscribeHabits, addHabit, updateHabit, deleteHabit as deleteHabitFromFirebase } from "../../lib/habitsService";
+import { Loader2 } from "lucide-react";
 
 /* ── Constants ── */
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -70,33 +60,6 @@ const COLOR_BG: Record<string, string> = {
   "#14B8A6": "#F0FDFA",
 };
 
-const INITIAL_HABITS: Habit[] = [
-  {
-    id: 1, name: "Uống đủ nước", desc: "2 lít nước mỗi ngày",
-    icon: "droplets", color: "#3B82F6", frequency: "daily", streak: 12, best: 20,
-    completedDates: getPast7Days().slice(0, 6),
-  },
-  {
-    id: 2, name: "Tập thể dục", desc: "30 phút cardio hoặc gym",
-    icon: "dumbbell", color: "#EF4444", frequency: "weekdays", streak: 5, best: 14,
-    completedDates: getPast7Days().slice(1, 6),
-  },
-  {
-    id: 3, name: "Đọc sách", desc: "Ít nhất 20 trang mỗi ngày",
-    icon: "book", color: "#8B5CF6", frequency: "daily", streak: 21, best: 21,
-    completedDates: getPast7Days(),
-  },
-  {
-    id: 4, name: "Thiền định", desc: "10 phút buổi sáng",
-    icon: "sun", color: "#F59E0B", frequency: "daily", streak: 3, best: 10,
-    completedDates: getPast7Days().slice(4),
-  },
-  {
-    id: 5, name: "Không mạng xã hội", desc: "Không dùng trước 9 giờ sáng",
-    icon: "moon", color: "#10B981", frequency: "weekdays", streak: 8, best: 8,
-    completedDates: getPast7Days().slice(2, 7),
-  },
-];
 
 /* ── Icon renderer ── */
 function HabitIconEl({ icon, size = 18 }: { icon: HabitIcon; size?: number }) {
@@ -144,7 +107,7 @@ function HabitForm({
   onClose,
 }: {
   initial: Partial<Habit> | null;
-  onSave: (h: Habit) => void;
+  onSave: (h: Partial<Habit> & Omit<Habit, "id" | "createdAt">) => void;
   onClose: () => void;
 }) {
   const [name, setName]         = useState(initial?.name ?? "");
@@ -157,7 +120,7 @@ function HabitForm({
     e.preventDefault();
     if (!name.trim()) return;
     onSave({
-      id: initial?.id ?? Date.now(),
+      id: initial?.id,
       name: name.trim(),
       desc: desc.trim(),
       icon,
@@ -290,9 +253,9 @@ function HabitCard({
   onDelete,
 }: {
   habit: Habit;
-  onToggleToday: (id: number) => void;
+  onToggleToday: (id: string) => void;
   onEdit: (h: Habit) => void;
-  onDelete: (id: number) => void;
+  onDelete: (id: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const doneToday = habit.completedDates.includes(TODAY);
@@ -408,9 +371,22 @@ function HabitCard({
 
 /* ── Main page ── */
 export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
-  const [habits, setHabits]     = useState<Habit[]>(INITIAL_HABITS);
+  const { habits, setHabits }   = useAppStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing]   = useState<Habit | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    setIsLoading(true);
+    const unsubscribe = subscribeHabits(uid, (data) => {
+      setHabits(data);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
+  }, [uid, setHabits]);
 
   function openModal()  { setFormOpen(true);  onModal?.(true);  }
   function closeModal() { setFormOpen(false); onModal?.(false); }
@@ -427,29 +403,39 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
     return true;
   }), [habits, filter]);
 
-  function toggleToday(id: number) {
-    setHabits(prev => prev.map(h => {
-      if (h.id !== id) return h;
-      const done = h.completedDates.includes(TODAY);
-      const dates = done
-        ? h.completedDates.filter(d => d !== TODAY)
-        : [...h.completedDates, TODAY];
-      const newStreak = done ? Math.max(h.streak - 1, 0) : h.streak + 1;
-      return { ...h, completedDates: dates, streak: newStreak, best: Math.max(h.best, newStreak) };
-    }));
+  async function toggleToday(id: string) {
+    if (!uid) return;
+    const h = habits.find(x => x.id === id);
+    if (!h) return;
+    const done = h.completedDates.includes(TODAY);
+    const dates = done
+      ? h.completedDates.filter(d => d !== TODAY)
+      : [...h.completedDates, TODAY];
+    const newStreak = done ? Math.max(h.streak - 1, 0) : h.streak + 1;
+    await updateHabit(uid, id, { 
+      completedDates: dates, 
+      streak: newStreak, 
+      best: Math.max(h.best, newStreak) 
+    });
   }
 
-  function saveHabit(h: Habit) {
-    setHabits(prev => {
-      const idx = prev.findIndex(x => x.id === h.id);
-      return idx >= 0 ? prev.map(x => x.id === h.id ? h : x) : [h, ...prev];
-    });
+  async function saveHabit(h: Partial<Habit> & Omit<Habit, "id" | "createdAt">) {
+    if (!uid) return;
+    const { id, ...habitData } = h;
+    if (id) {
+      await updateHabit(uid, id, habitData);
+    } else {
+      await addHabit(uid, habitData as Omit<Habit, "id" | "createdAt">);
+    }
     setFormOpen(false);
     setEditing(null);
   }
 
-  function deleteHabit(id: number) {
-    setHabits(prev => prev.filter(h => h.id !== id));
+  async function deleteHabit(id: string) {
+    if (!uid) return;
+    if (confirm("Bạn có chắc chắn muốn xoá thói quen này?")) {
+      await deleteHabitFromFirebase(uid, id);
+    }
   }
 
   function openAdd()            { setEditing(null); openModal(); }
@@ -532,7 +518,12 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Habit list ── */}
         <div className="flex-1 overflow-y-auto px-4 lg:px-6 pb-24 lg:pb-6">
-          <AnimatePresence>
+          {isLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <Loader2 className="animate-spin text-primary" size={24} />
+            </div>
+          ) : (
+            <AnimatePresence>
             {visible.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }}
@@ -573,6 +564,7 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
               </div>
             )}
           </AnimatePresence>
+          )}
         </div>
       </div>
 

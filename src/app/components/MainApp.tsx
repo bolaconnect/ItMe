@@ -12,10 +12,11 @@ import { HabitsPage } from "./HabitsPage";
 import { NotesPage } from "./NotesPage";
 import { CalendarPage } from "./CalendarPage";
 import { ProfilePage } from "./ProfilePage";
+import { EventsPage } from "./EventsPage";
 
-export type Page = "dashboard" | "tasks" | "goals" | "habits" | "finance" | "notes" | "calendar" | "profile";
+export type Page = "dashboard" | "tasks" | "goals" | "habits" | "finance" | "notes" | "calendar" | "events" | "profile";
 
-const CAL_TOGGLE_PAGES: Page[] = ["dashboard", "tasks", "goals", "habits", "notes"];
+const CAL_TOGGLE_PAGES: Page[] = ["dashboard", "tasks", "goals", "habits", "notes", "events"];
 
 export function MainApp() {
   const [page, setPage]                 = useState<Page>("dashboard");
@@ -59,7 +60,7 @@ export function MainApp() {
             {calendarView && (
               <motion.div
                 key="cal-overlay"
-                className="absolute inset-0 z-30 bg-background flex flex-col"
+                className="absolute inset-0 z-50 bg-background flex flex-col"
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 16 }}
@@ -77,6 +78,7 @@ export function MainApp() {
           {page === "habits"    && <HabitsPage onModal={setModalOpen} />}
           {page === "notes"     && <NotesPage onModal={setModalOpen} />}
           {page === "calendar"  && <CalendarPage />}
+          {page === "events"    && <EventsPage />}
           {page === "profile"   && <div className="flex-1 overflow-hidden flex flex-col"><ProfilePage onNavigate={navigate} darkMode={darkMode} onToggleDark={() => setDarkMode(d => !d)} /></div>}
         </main>
 

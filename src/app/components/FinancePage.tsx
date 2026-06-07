@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { TabScroller }  from "./TabScroller";
 import { OverviewTab }  from "./finance/OverviewTab";
@@ -6,14 +6,22 @@ import { CashflowTab } from "./finance/CashflowTab";
 import { AssetsTab }   from "./finance/AssetsTab";
 import { InvestTab }   from "./finance/InvestTab";
 import { GoalsTab }    from "./finance/GoalsTab";
-import {
-  INITIAL_INCOME, INITIAL_EXPENSE, INITIAL_ASSETS,
-  INITIAL_LIABILITIES, INITIAL_INVESTMENTS, INITIAL_INSURANCE, INITIAL_GOALS,
-} from "./finance/financeStore";
 import type {
   IncomeItem, ExpenseItem, Asset, Liability,
   Investment, Insurance, Goal,
 } from "./finance/financeStore";
+import { auth } from "../../lib/firebase";
+import {
+  subscribeIncome, subscribeExpense, subscribeAssets, subscribeLiabilities,
+  subscribeInvestments, subscribeInsurance, subscribeGoals,
+  addIncome, addExpense, addAsset, addLiability,
+  addInvestment, addInsuranceItem, addGoal,
+  updateIncome, updateExpense, updateAsset, updateLiability,
+  updateInvestment, updateInsuranceItem, updateGoal,
+  deleteIncome, deleteExpense, deleteAsset, deleteLiability,
+  deleteInvestment, deleteInsuranceItem, deleteGoal,
+} from "../../lib/financeService";
+import { Loader2 } from "lucide-react";
 
 type FinTab = "overview" | "cashflow" | "assets" | "invest" | "goals";
 
@@ -25,26 +33,161 @@ const TABS: { id: FinTab; label: string; emoji: string }[] = [
   { id: "goals",     label: "Mục tiêu",  emoji: "🎯" },
 ];
 
-/* Generic upsert helper */
-function upsert<T extends { id: number }>(list: T[], item: T): T[] {
-  const idx = list.findIndex((i) => i.id === item.id);
-  return idx >= 0 ? list.map((i) => (i.id === item.id ? item : i)) : [...list, item];
+/* ── Firestore uses string IDs; local tabs use number IDs
+   We store firestoreId in a sidecar Map and generate a numeric hash for local use ── */
+type WithFirestoreId<T> = T & { _fid: string };
+
+let _counter = 1;
+const _fidToNum = new Map<string, number>();
+
+function toNumId(fid: string): number {
+  if (!_fidToNum.has(fid)) _fidToNum.set(fid, _counter++);
+  return _fidToNum.get(fid)!;
 }
-function remove<T extends { id: number }>(list: T[], id: number): T[] {
-  return list.filter((i) => i.id !== id);
+
+function attachNumId<T extends Record<string, any>>(item: T & { id: string }): T & { _fid: string; id: number } {
+  const { id: fid, ...rest } = item;
+  return { ...rest as any, id: toNumId(fid), _fid: fid };
+}
+
+function mapItems<T extends Record<string, any>>(items: (T & { id: string })[]): (T & { _fid: string; id: number })[] {
+  return items.map(attachNumId);
+}
+
+/* Get the Firestore string ID from numeric local id */
+function getFid<T extends { id: number; _fid: string }>(list: T[], numId: number): string | undefined {
+  return list.find(i => i.id === numId)?._fid;
 }
 
 export function FinancePage() {
   const [tab, setTab] = useState<FinTab>("overview");
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadedCount, setLoadedCount] = useState(0);
+  const TOTAL_COLLS = 7;
 
-  /* ── All finance state lives here ── */
-  const [incomeItems,  setIncomeItems]  = useState<IncomeItem[]> (INITIAL_INCOME);
-  const [expenseItems, setExpenseItems] = useState<ExpenseItem[]>(INITIAL_EXPENSE);
-  const [assets,       setAssets]       = useState<Asset[]>      (INITIAL_ASSETS);
-  const [liabilities,  setLiabilities]  = useState<Liability[]>  (INITIAL_LIABILITIES);
-  const [investments,  setInvestments]  = useState<Investment[]> (INITIAL_INVESTMENTS);
-  const [insurance,    setInsurance]    = useState<Insurance[]>  (INITIAL_INSURANCE);
-  const [goals,        setGoals]        = useState<Goal[]>       (INITIAL_GOALS);
+  const [incomeItems,  setIncomeItems]  = useState<(IncomeItem  & { _fid: string })[]>([]);
+  const [expenseItems, setExpenseItems] = useState<(ExpenseItem & { _fid: string })[]>([]);
+  const [assets,       setAssets]       = useState<(Asset       & { _fid: string })[]>([]);
+  const [liabilities,  setLiabilities]  = useState<(Liability   & { _fid: string })[]>([]);
+  const [investments,  setInvestments]  = useState<(Investment  & { _fid: string })[]>([]);
+  const [insurance,    setInsurance]    = useState<(Insurance   & { _fid: string })[]>([]);
+  const [goals,        setGoals]        = useState<(Goal        & { _fid: string })[]>([]);
+
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    setIsLoading(true);
+    setLoadedCount(0);
+
+    const loaded = () => setLoadedCount(c => c + 1);
+
+    const subs = [
+      subscribeIncome(uid,       (d) => { setIncomeItems(mapItems(d)  as any); loaded(); }),
+      subscribeExpense(uid,      (d) => { setExpenseItems(mapItems(d) as any); loaded(); }),
+      subscribeAssets(uid,       (d) => { setAssets(mapItems(d)       as any); loaded(); }),
+      subscribeLiabilities(uid,  (d) => { setLiabilities(mapItems(d) as any); loaded(); }),
+      subscribeInvestments(uid,  (d) => { setInvestments(mapItems(d) as any); loaded(); }),
+      subscribeInsurance(uid,    (d) => { setInsurance(mapItems(d)   as any); loaded(); }),
+      subscribeGoals(uid,        (d) => { setGoals(mapItems(d)       as any); loaded(); }),
+    ];
+
+    return () => subs.forEach(u => u());
+  }, [uid]);
+
+  useEffect(() => {
+    if (loadedCount >= TOTAL_COLLS) setIsLoading(false);
+  }, [loadedCount]);
+
+  /* ── Save handlers ── */
+  async function handleSaveIncome(item: IncomeItem) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateIncome(uid, _fid, data);
+    else      await addIncome(uid, data);
+  }
+  async function handleSaveExpense(item: ExpenseItem) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateExpense(uid, _fid, data);
+    else      await addExpense(uid, data);
+  }
+  async function handleSaveAsset(item: Asset) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateAsset(uid, _fid, data);
+    else      await addAsset(uid, data);
+  }
+  async function handleSaveLiability(item: Liability) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateLiability(uid, _fid, data);
+    else      await addLiability(uid, data);
+  }
+  async function handleSaveInvestment(item: Investment) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateInvestment(uid, _fid, data);
+    else      await addInvestment(uid, data);
+  }
+  async function handleSaveInsurance(item: Insurance) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateInsuranceItem(uid, _fid, data);
+    else      await addInsuranceItem(uid, data);
+  }
+  async function handleSaveGoal(item: Goal) {
+    if (!uid) return;
+    const { _fid, id, ...data } = item as any;
+    if (_fid) await updateGoal(uid, _fid, data);
+    else      await addGoal(uid, data);
+  }
+
+  /* ── Delete handlers ── */
+  async function handleDeleteIncome(numId: number) {
+    if (!uid) return;
+    const fid = getFid(incomeItems, numId);
+    if (fid) await deleteIncome(uid, fid);
+  }
+  async function handleDeleteExpense(numId: number) {
+    if (!uid) return;
+    const fid = getFid(expenseItems, numId);
+    if (fid) await deleteExpense(uid, fid);
+  }
+  async function handleDeleteAsset(numId: number) {
+    if (!uid) return;
+    const fid = getFid(assets, numId);
+    if (fid) await deleteAsset(uid, fid);
+  }
+  async function handleDeleteLiability(numId: number) {
+    if (!uid) return;
+    const fid = getFid(liabilities, numId);
+    if (fid) await deleteLiability(uid, fid);
+  }
+  async function handleDeleteInvestment(numId: number) {
+    if (!uid) return;
+    const fid = getFid(investments, numId);
+    if (fid) await deleteInvestment(uid, fid);
+  }
+  async function handleDeleteInsurance(numId: number) {
+    if (!uid) return;
+    const fid = getFid(insurance, numId);
+    if (fid) await deleteInsuranceItem(uid, fid);
+  }
+  async function handleDeleteGoal(numId: number) {
+    if (!uid) return;
+    const fid = getFid(goals, numId);
+    if (fid) await deleteGoal(uid, fid);
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-primary" size={28} />
+        <p className="text-muted-foreground text-sm">Đang tải dữ liệu tài chính...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -87,6 +230,8 @@ export function FinancePage() {
                 incomeItems={incomeItems}
                 expenseItems={expenseItems}
                 goals={goals}
+                assets={assets}
+                liabilities={liabilities}
               />
             )}
 
@@ -94,10 +239,10 @@ export function FinancePage() {
               <CashflowTab
                 incomeItems={incomeItems}
                 expenseItems={expenseItems}
-                onSaveIncome={(item)  => setIncomeItems((p)  => upsert(p, item))}
-                onSaveExpense={(item) => setExpenseItems((p) => upsert(p, item))}
-                onDeleteIncome={(id)  => setIncomeItems((p)  => remove(p, id))}
-                onDeleteExpense={(id) => setExpenseItems((p) => remove(p, id))}
+                onSaveIncome={handleSaveIncome}
+                onSaveExpense={handleSaveExpense}
+                onDeleteIncome={handleDeleteIncome}
+                onDeleteExpense={handleDeleteExpense}
               />
             )}
 
@@ -105,10 +250,10 @@ export function FinancePage() {
               <AssetsTab
                 assets={assets}
                 liabilities={liabilities}
-                onSaveAsset={(item)      => setAssets((p)      => upsert(p, item))}
-                onSaveLiability={(item)  => setLiabilities((p) => upsert(p, item))}
-                onDeleteAsset={(id)     => setAssets((p)      => remove(p, id))}
-                onDeleteLiability={(id) => setLiabilities((p) => remove(p, id))}
+                onSaveAsset={handleSaveAsset}
+                onSaveLiability={handleSaveLiability}
+                onDeleteAsset={handleDeleteAsset}
+                onDeleteLiability={handleDeleteLiability}
               />
             )}
 
@@ -116,18 +261,18 @@ export function FinancePage() {
               <InvestTab
                 investments={investments}
                 insurance={insurance}
-                onSaveInvestment={(item) => setInvestments((p) => upsert(p, item))}
-                onSaveInsurance={(item)  => setInsurance((p)   => upsert(p, item))}
-                onDeleteInvestment={(id) => setInvestments((p) => remove(p, id))}
-                onDeleteInsurance={(id)  => setInsurance((p)   => remove(p, id))}
+                onSaveInvestment={handleSaveInvestment}
+                onSaveInsurance={handleSaveInsurance}
+                onDeleteInvestment={handleDeleteInvestment}
+                onDeleteInsurance={handleDeleteInsurance}
               />
             )}
 
             {tab === "goals" && (
               <GoalsTab
                 goals={goals}
-                onSave={(item)   => setGoals((p) => upsert(p, item))}
-                onDelete={(id)   => setGoals((p) => remove(p, id))}
+                onSave={handleSaveGoal}
+                onDelete={handleDeleteGoal}
               />
             )}
           </motion.div>

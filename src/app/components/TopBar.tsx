@@ -11,6 +11,7 @@ const titles: Record<Page, string> = {
   finance:   "Tài chính",
   notes:     "Ghi chú",
   calendar:  "Lịch",
+  events:    "Sự kiện",
   profile:   "Bản thân",
 };
 
@@ -22,6 +23,7 @@ const greetings: Record<Page, string> = {
   finance:   "Quản lý tiền bạc thông minh.",
   notes:     "Ghi lại mọi ý tưởng hay.",
   calendar:  "Lên kế hoạch, chủ động mỗi ngày.",
+  events:    "Theo dõi các sự kiện sắp tới.",
   profile:   "Phát triển bản thân mỗi ngày.",
 };
 

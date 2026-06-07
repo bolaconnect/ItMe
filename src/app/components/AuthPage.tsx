@@ -1,6 +1,16 @@
 import { useState } from "react";
-import { Eye, EyeOff, ArrowRight, Sparkles, CheckCircle2, ChevronLeft } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Sparkles, CheckCircle2, ChevronLeft, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signInWithPopup,
+  GoogleAuthProvider,
+  GithubAuthProvider,
+} from "firebase/auth";
+import { FirebaseError } from "firebase/app";
+import { auth } from "../../lib/firebase";
 
 type Tab = "login" | "register";
 type MobileScreen = "welcome" | "form";
@@ -112,10 +122,64 @@ export function AuthPage({ onLogin }: AuthPageProps) {
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
+  const [regPassword, setRegPassword] = useState("");
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
-  const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleEmailLogin = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!loginEmail || !loginPassword) return setError("Vui lòng nhập đủ email và mật khẩu.");
+    setIsLoading(true); setError("");
+    try {
+      await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+    } catch (err: any) {
+      if (err instanceof FirebaseError) {
+        if (err.code === "auth/invalid-credential") setError("Email hoặc mật khẩu không chính xác.");
+        else setError(err.message);
+      } else setError("Đã xảy ra lỗi.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEmailRegister = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (!regName || !regEmail || !regPassword || !regConfirm) return setError("Vui lòng điền đủ thông tin.");
+    if (regPassword !== regConfirm) return setError("Mật khẩu xác nhận không khớp.");
+    setIsLoading(true); setError("");
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, regEmail, regPassword);
+      await updateProfile(cred.user, { displayName: regName });
+      // Lắng nghe auth state ở App.tsx sẽ tự động chuyển trang
+    } catch (err: any) {
+      if (err instanceof FirebaseError) {
+        if (err.code === "auth/email-already-in-use") setError("Email đã được sử dụng.");
+        else if (err.code === "auth/weak-password") setError("Mật khẩu quá yếu (ít nhất 6 ký tự).");
+        else setError(err.message);
+      } else setError("Đã xảy ra lỗi.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleProviderLogin = async (providerName: "google" | "github") => {
+    setIsLoading(true); setError("");
+    try {
+      const provider = providerName === "google" ? new GoogleAuthProvider() : new GithubAuthProvider();
+      await signInWithPopup(auth, provider);
+    } catch (err: any) {
+      if (err instanceof FirebaseError) {
+        if (err.code === "auth/popup-closed-by-user") setError("Đã huỷ đăng nhập.");
+        else setError(err.message);
+      } else setError("Đã xảy ra lỗi.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="size-full overflow-hidden bg-background">
@@ -149,7 +213,12 @@ export function AuthPage({ onLogin }: AuthPageProps) {
             setRegPassword={setRegPassword}
             regConfirm={regConfirm}
             setRegConfirm={setRegConfirm}
-            onLogin={onLogin}
+            handleEmailLogin={handleEmailLogin}
+            handleEmailRegister={handleEmailRegister}
+            handleProviderLogin={handleProviderLogin}
+            isLoading={isLoading}
+            error={error}
+            setError={setError}
           />
         </div>
       </div>
@@ -210,7 +279,12 @@ export function AuthPage({ onLogin }: AuthPageProps) {
                     setRegPassword={setRegPassword}
                     regConfirm={regConfirm}
                     setRegConfirm={setRegConfirm}
-                    onLogin={onLogin}
+                    handleEmailLogin={handleEmailLogin}
+                    handleEmailRegister={handleEmailRegister}
+                    handleProviderLogin={handleProviderLogin}
+                    isLoading={isLoading}
+                    error={error}
+                    setError={setError}
                   />
                 </div>
               </div>
@@ -242,7 +316,12 @@ interface FormPanelProps {
   setRegPassword: (v: string) => void;
   regConfirm: string;
   setRegConfirm: (v: string) => void;
-  onLogin: () => void;
+  handleEmailLogin: (e?: React.FormEvent) => void;
+  handleEmailRegister: (e?: React.FormEvent) => void;
+  handleProviderLogin: (p: "google" | "github") => void;
+  isLoading: boolean;
+  error: string;
+  setError: (v: string) => void;
 }
 
 function FormPanel({
@@ -255,7 +334,8 @@ function FormPanel({
   regEmail, setRegEmail,
   regPassword, setRegPassword,
   regConfirm, setRegConfirm,
-  onLogin,
+  handleEmailLogin, handleEmailRegister, handleProviderLogin,
+  isLoading, error, setError
 }: FormPanelProps) {
   return (
     <div className="w-full max-w-[400px]">
@@ -284,7 +364,7 @@ function FormPanel({
         {(["login", "register"] as Tab[]).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setError(""); }}
             className={`flex-1 py-2 rounded-lg text-sm transition-all duration-200 ${
               tab === t
                 ? "bg-card text-foreground shadow-sm"
@@ -296,6 +376,14 @@ function FormPanel({
         ))}
       </div>
 
+      <AnimatePresence>
+        {error && (
+          <motion.div initial={{opacity:0,y:-10}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-10}} className="mt-4 p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
+            {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Forms */}
       <AnimatePresence mode="wait">
         {tab === "login" ? (
@@ -306,7 +394,7 @@ function FormPanel({
             exit={{ opacity: 0, x: 16 }}
             transition={{ duration: 0.22 }}
             className="mt-6 space-y-4"
-            onSubmit={(e) => { e.preventDefault(); onLogin(); }}
+            onSubmit={handleEmailLogin}
           >
             <Field label="Email" htmlFor="l-email">
               <input
@@ -333,9 +421,9 @@ function FormPanel({
               </button>
             </div>
 
-            <SubmitButton label="Đăng nhập" />
+            <SubmitButton label="Đăng nhập" isLoading={isLoading} />
             <Divider />
-            <SocialButtons />
+            <SocialButtons onGoogle={() => handleProviderLogin("google")} onGithub={() => handleProviderLogin("github")} isLoading={isLoading} />
           </motion.form>
         ) : (
           <motion.form
@@ -345,7 +433,7 @@ function FormPanel({
             exit={{ opacity: 0, x: -16 }}
             transition={{ duration: 0.22 }}
             className="mt-6 space-y-4"
-            onSubmit={(e) => { e.preventDefault(); onLogin(); }}
+            onSubmit={handleEmailRegister}
           >
             <Field label="Tên của bạn" htmlFor="r-name">
               <input
@@ -393,9 +481,9 @@ function FormPanel({
               <button type="button" className="text-primary hover:underline">Chính sách bảo mật</button>.
             </p>
 
-            <SubmitButton label="Tạo tài khoản" />
+            <SubmitButton label="Tạo tài khoản" isLoading={isLoading} />
             <Divider />
-            <SocialButtons />
+            <SocialButtons onGoogle={() => handleProviderLogin("google")} onGithub={() => handleProviderLogin("github")} isLoading={isLoading} />
           </motion.form>
         )}
       </AnimatePresence>
@@ -436,14 +524,13 @@ function EyeToggle({ show, onToggle }: { show: boolean; onToggle: () => void }) 
   );
 }
 
-function SubmitButton({ label }: { label: string }) {
+function SubmitButton({ label, isLoading }: { label: string; isLoading?: boolean }) {
   return (
     <button
-      type="submit"
-      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[0.98] transition-all duration-150 mt-2"
+      type="submit" disabled={isLoading}
+      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[0.98] transition-all duration-150 mt-2 disabled:opacity-50 disabled:pointer-events-none"
     >
-      {label}
-      <ArrowRight size={16} />
+      {isLoading ? <Loader2 size={16} className="animate-spin" /> : <>{label} <ArrowRight size={16} /></>}
     </button>
   );
 }
@@ -458,20 +545,20 @@ function Divider() {
   );
 }
 
-function SocialButtons() {
+function SocialButtons({ onGoogle, onGithub, isLoading }: { onGoogle: () => void; onGithub: () => void; isLoading?: boolean }) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      <SocialBtn icon={GoogleIcon} label="Google" />
-      <SocialBtn icon={GithubIcon} label="GitHub" />
+      <SocialBtn icon={GoogleIcon} label="Google" onClick={onGoogle} disabled={isLoading} />
+      <SocialBtn icon={GithubIcon} label="GitHub" onClick={onGithub} disabled={isLoading} />
     </div>
   );
 }
 
-function SocialBtn({ icon: Icon, label }: { icon: React.ElementType; label: string }) {
+function SocialBtn({ icon: Icon, label, onClick, disabled }: { icon: React.ElementType; label: string; onClick: () => void; disabled?: boolean }) {
   return (
     <button
-      type="button"
-      className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm hover:bg-muted transition-colors"
+      type="button" onClick={onClick} disabled={disabled}
+      className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-border bg-card text-foreground text-sm hover:bg-muted transition-colors disabled:opacity-50 disabled:pointer-events-none"
     >
       <Icon />
       {label}

@@ -128,7 +128,7 @@ export function CashflowTab({
         <div className="bg-card rounded-2xl border border-border p-5">
           <div className="flex items-center justify-between mb-4">
             <p className="text-sm font-semibold text-foreground">
-              {view === "expense" ? "Khoản chi" : "Nguồn thu"} tháng 6
+              {view === "expense" ? "Khoản chi" : "Nguồn thu"} tháng {new Date().getMonth() + 1}
             </p>
             <button onClick={openAdd} className="flex items-center gap-1 text-xs text-primary hover:underline">
               <Plus size={12} /> Thêm

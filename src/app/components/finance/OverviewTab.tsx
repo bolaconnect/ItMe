@@ -5,12 +5,14 @@ import {
 } from "recharts";
 import { TrendingUp, TrendingDown, Shield, Wallet } from "lucide-react";
 import { MONTHLY_TREND, fmt, fmtFull } from "./financeStore";
-import type { IncomeItem, ExpenseItem, Goal } from "./financeStore";
+import type { IncomeItem, ExpenseItem, Goal, Asset, Liability } from "./financeStore";
 
 interface OverviewTabProps {
   incomeItems:  IncomeItem[];
   expenseItems: ExpenseItem[];
   goals:        Goal[];
+  assets:       Asset[];
+  liabilities:  Liability[];
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -24,12 +26,12 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export function OverviewTab({ incomeItems, expenseItems, goals }: OverviewTabProps) {
+export function OverviewTab({ incomeItems, expenseItems, goals, assets, liabilities }: OverviewTabProps) {
   const uid = useId().replace(/:/g, "");
   const totalIncome  = incomeItems.reduce((s, i) => s + i.amount, 0);
   const totalExpense = expenseItems.reduce((s, i) => s + i.amount, 0);
-  const totalAssets  = 144000000;
-  const totalLiab    = 17500000;
+  const totalAssets  = assets.reduce((s, i) => s + i.value, 0);
+  const totalLiab    = liabilities.reduce((s, i) => s + i.remaining, 0);
   const netWorth     = totalAssets - totalLiab;
   const savingRate   = totalIncome > 0 ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100) : 0;
   const emergencyGoal = goals.find((g) => g.name === "Quỹ khẩn cấp");

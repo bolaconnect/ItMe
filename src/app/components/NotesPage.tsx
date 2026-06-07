@@ -5,16 +5,9 @@ import {
   FileText, Bold, Italic, List, Hash, ArrowLeft,
 } from "lucide-react";
 
-/* ── Types ── */
-interface Note {
-  id: number;
-  title: string;
-  content: string;
-  tags: string[];
-  pinned: boolean;
-  updatedAt: string; // ISO
-  color: string;
-}
+import { auth } from "../../lib/firebase";
+import { subscribeNotes, addNote as addNoteToFirebase, updateNote, deleteNote as deleteNoteFromFirebase, Note } from "../../lib/notesService";
+import { Loader2 } from "lucide-react";
 
 /* ── Constants ── */
 const NOTE_COLORS = [
@@ -40,38 +33,7 @@ function fmtDate(iso: string) {
   return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" });
 }
 
-const INITIAL_NOTES: Note[] = [
-  {
-    id: 1, title: "Ý tưởng cho dự án mới", pinned: true, color: "#FFF9E6",
-    tags: ["ý tưởng", "công việc"],
-    content: "## Ý tưởng chính\n\n- Xây dựng app quản lý tài chính cá nhân\n- Tích hợp AI để phân tích chi tiêu\n- Giao diện đơn giản, dễ dùng\n\n## Tính năng cần có\n\n1. Theo dõi thu chi hàng ngày\n2. Biểu đồ phân tích theo tháng\n3. Cảnh báo khi vượt ngân sách\n4. Xuất báo cáo PDF",
-    updatedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 2, title: "Lịch học tiếng Anh", pinned: false, color: "#EFF6FF",
-    tags: ["học tập", "tiếng anh"],
-    content: "## Kế hoạch học\n\n**Tuần này:**\n- Grammar: Past perfect\n- Vocabulary: 20 từ mới/ngày\n- Listening: 1 podcast 30 phút\n\n**Tài liệu:**\n- English Grammar in Use\n- Podcast: 6 Minute English\n- App: Anki flashcards",
-    updatedAt: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-  },
-  {
-    id: 3, title: "Công thức nấu ăn", pinned: false, color: "#F0FDF4",
-    tags: ["cá nhân", "nấu ăn"],
-    content: "## Salad gà nướng\n\n**Nguyên liệu:**\n- 300g ức gà\n- Rau xà lách\n- Cà chua bi, dưa chuột\n- Sốt mù tạt mật ong\n\n**Cách làm:**\n1. Ướp gà với muối, tiêu, tỏi\n2. Nướng ở 180°C trong 25 phút\n3. Trộn rau với sốt\n4. Thái gà và cho lên trên",
-    updatedAt: new Date(Date.now() - 86400 * 1000).toISOString(),
-  },
-  {
-    id: 4, title: "Meeting notes - Sprint 12", pinned: false, color: "var(--card)",
-    tags: ["công việc", "meeting"],
-    content: "## Sprint 12 Planning\n\n**Thời gian:** 9:00 - 10:30\n**Tham dự:** Anh, Bình, Chương, Dung\n\n**Đã thảo luận:**\n- Review sprint 11: hoàn thành 85% story points\n- Sprint 12 goal: launch tính năng payment\n- Blocker: API từ phía ngân hàng chưa sẵn sàng\n\n**Action items:**\n- [ ] Liên hệ lại ngân hàng (Bình)\n- [ ] Thiết kế mockup payment flow (Chương)\n- [ ] Viết test cases (Dung)",
-    updatedAt: new Date(Date.now() - 2 * 86400 * 1000).toISOString(),
-  },
-  {
-    id: 5, title: "Sách đang đọc: Atomic Habits", pinned: false, color: "#FDF4FF",
-    tags: ["học tập", "sách"],
-    content: "## Ghi chú chương 1-3\n\n**Key insight:**\n> Thay đổi nhỏ không tạo ra kết quả ngay lập tức — chúng tích lũy theo thời gian.\n\n**1% Better Every Day:**\n- 1.01^365 = 37.78 (tốt hơn 37 lần sau 1 năm)\n- 0.99^365 = 0.03 (kém đi gần hết)\n\n**4 bước tạo thói quen tốt:**\n1. Gợi ý rõ ràng (Cue)\n2. Hấp dẫn (Craving)\n3. Dễ thực hiện (Response)\n4. Thỏa mãn (Reward)",
-    updatedAt: new Date(Date.now() - 3 * 86400 * 1000).toISOString(),
-  },
-];
+
 
 /* ── Simple markdown renderer ── */
 function renderMarkdown(text: string) {
@@ -128,15 +90,35 @@ function ToolBtn({ icon: Icon, label, onClick }: { icon: React.ElementType; labe
 
 /* ── Main page ── */
 export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
-  const [notes, setNotes]           = useState<Note[]>(INITIAL_NOTES);
-  const [selected, setSelected]     = useState<Note | null>(notes[0]);
+  const [notes, setNotes]           = useState<Note[]>([]);
+  const [selected, setSelected]     = useState<Note | null>(null);
   const [search, setSearch]         = useState("");
   const [activeTag, setActiveTag]   = useState<string | null>(null);
   const [editing, setEditing]       = useState(false);
   const [editTitle, setEditTitle]   = useState("");
   const [editContent, setEditContent] = useState("");
   const [showMobile, setShowMobile] = useState(false); // mobile: show editor
+  const [isLoading, setIsLoading]   = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    setIsLoading(true);
+    const unsubscribe = subscribeNotes(uid, (data) => {
+      setNotes(data);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
+  }, [uid]);
+
+  // Auto select first note if none is selected
+  useEffect(() => {
+    if (!isLoading && notes.length > 0 && !selected) {
+      setSelected(notes[0]);
+    }
+  }, [isLoading, notes, selected]);
 
   /* All unique tags */
   const allTags = useMemo(() => {
@@ -176,28 +158,36 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
     setTimeout(() => textareaRef.current?.focus(), 50);
   }
 
-  function saveEdit() {
-    if (!selected) return;
-    const updated: Note = {
-      ...selected,
+  async function saveEdit() {
+    if (!selected || !uid) return;
+    const updated = {
       title: editTitle.trim() || "Ghi chú không tiêu đề",
       content: editContent,
       updatedAt: new Date().toISOString(),
     };
-    setNotes(prev => prev.map(n => n.id === updated.id ? updated : n));
-    setSelected(updated);
+    
+    const tempUpdated = { ...selected, ...updated };
+    setNotes(prev => prev.map(n => n.id === tempUpdated.id ? tempUpdated : n));
+    setSelected(tempUpdated);
     setEditing(false);
     onModal?.(false);
+    
+    await updateNote(uid, selected.id, updated);
   }
 
-  function addNote() {
-    const n: Note = {
-      id: Date.now(), title: "Ghi chú mới", content: "", tags: [],
+  async function addNote() {
+    if (!uid) return;
+    const n = {
+      title: "Ghi chú mới", content: "", tags: [],
       pinned: false, color: "var(--card)", updatedAt: new Date().toISOString(),
     };
-    setNotes(prev => [n, ...prev]);
-    setSelected(n);
-    setEditTitle(n.title);
+    
+    const newId = await addNoteToFirebase(uid, n);
+    const newNote: Note = { id: newId, ...n };
+    
+    setNotes(prev => [newNote, ...prev]);
+    setSelected(newNote);
+    setEditTitle(newNote.title);
     setEditContent("");
     setEditing(true);
     setShowMobile(true);
@@ -205,22 +195,36 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
     setTimeout(() => textareaRef.current?.focus(), 50);
   }
 
-  function deleteNote(id: number) {
+  async function deleteNote(id: string) {
+    if (!uid) return;
+    if (!confirm("Bạn có chắc chắn muốn xóa ghi chú này?")) return;
+    
     setNotes(prev => prev.filter(n => n.id !== id));
     const remaining = filtered.filter(n => n.id !== id);
     setSelected(remaining[0] ?? null);
     setEditing(false);
+    
+    await deleteNoteFromFirebase(uid, id);
   }
 
-  function togglePin(id: number) {
+  async function togglePin(id: string) {
+    if (!uid) return;
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+    
     setNotes(prev => prev.map(n => n.id === id ? { ...n, pinned: !n.pinned } : n));
     if (selected?.id === id) setSelected(s => s ? { ...s, pinned: !s.pinned } : s);
+    
+    await updateNote(uid, id, { pinned: !note.pinned });
   }
 
-  function changeColor(color: string) {
-    if (!selected) return;
+  async function changeColor(color: string) {
+    if (!selected || !uid) return;
+    
     setNotes(prev => prev.map(n => n.id === selected.id ? { ...n, color } : n));
     setSelected(s => s ? { ...s, color } : s);
+    
+    await updateNote(uid, selected.id, { color });
   }
 
   function insertMarkdown(wrap: string) {
@@ -306,7 +310,11 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* Note list */}
         <div className="flex-1 overflow-y-auto">
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <Loader2 className="animate-spin text-primary" size={24} />
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-2 text-center p-6">
               <FileText size={28} className="text-muted-foreground" />
               <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>Không tìm thấy ghi chú</p>

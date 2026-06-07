@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { Plus, CheckCircle2, Circle, Clock, Flag, Search, X, SlidersHorizontal } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Plus, CheckCircle2, Circle, Clock, Flag, Search, X, SlidersHorizontal, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { TaskForm } from "./tasks/TaskForm";
-import {
-  INITIAL_TASKS, PRIORITY_COLOR, PRIORITY_BG, groupTasks,
-} from "./tasks/taskData";
+import { PRIORITY_COLOR, PRIORITY_BG, groupTasks } from "./tasks/taskData";
+import { useAppStore } from "../store/useAppStore";
+import { auth } from "../../lib/firebase";
+import { subscribeTasks, addTask, updateTask, deleteTask } from "../../lib/tasksService";
 import type { Task, Filter, Priority } from "./tasks/taskData";
 
 const FILTERS: { id: Filter; label: string }[] = [
@@ -15,10 +16,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "done",     label: "Đã xong"   },
 ];
 
-function upsert(list: Task[], item: Task) {
-  const i = list.findIndex((t) => t.id === item.id);
-  return i >= 0 ? list.map((t) => (t.id === item.id ? item : t)) : [...list, item];
-}
+
 
 const VN_DAYS   = ["CN","T2","T3","T4","T5","T6","T7"];
 const VN_MONTHS = ["Th.1","Th.2","Th.3","Th.4","Th.5","Th.6","Th.7","Th.8","Th.9","Th.10","Th.11","Th.12"];
@@ -129,12 +127,25 @@ function CalendarTaskView({ tasks, onAdd }: { tasks: Task[]; onAdd: (date: strin
 }
 
 export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
-  const [tasks,       setTasks]       = useState<Task[]>(INITIAL_TASKS);
+  const { tasks, setTasks } = useAppStore();
   const [filter,      setFilter]      = useState<Filter>("all");
   const [search,      setSearch]      = useState("");
   const [formOpen,    setFormOpen]    = useState(false);
   const [editing,     setEditing]     = useState<Task | null>(null);
   const [searchOpen,  setSearchOpen]  = useState(false);
+  const [isLoading,   setIsLoading]   = useState(true);
+
+  const uid = auth.currentUser?.uid;
+
+  useEffect(() => {
+    if (!uid) return;
+    setIsLoading(true);
+    const unsubscribe = subscribeTasks(uid, (data) => {
+      setTasks(data);
+      setIsLoading(false);
+    });
+    return () => unsubscribe();
+  }, [uid, setTasks]);
 
   function openModal()  { setFormOpen(true);  onModal?.(true);  }
   function closeModal() { setFormOpen(false); onModal?.(false); }
@@ -156,8 +167,26 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
     filter,
   );
 
-  function toggle(id: number) {
-    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, done: !t.done } : t));
+  async function toggle(id: string) {
+    if (!uid) return;
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    await updateTask(uid, id, { done: !task.done });
+  }
+
+  async function handleSaveTask(task: Partial<Task> & Omit<Task, "id" | "createdAt">) {
+    if (!uid) return;
+    const { id, ...taskData } = task;
+    if (id) {
+      await updateTask(uid, id, taskData);
+    } else {
+      await addTask(uid, taskData as Omit<Task, "id" | "createdAt">);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!uid) return;
+    await deleteTask(uid, id);
   }
 
   function openAdd()         { setEditing(null); openModal(); }
@@ -256,7 +285,11 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Task list ── */}
         <div className="flex-1 overflow-y-auto px-4 lg:px-6 pb-24 lg:pb-6">
-          {groups.length === 0 && (
+          {isLoading ? (
+            <div className="flex justify-center items-center h-full">
+              <Loader2 className="animate-spin text-primary" size={24} />
+            </div>
+          ) : groups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
               <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center text-2xl">
                 {filter === "done" ? "🎉" : "✅"}
@@ -268,7 +301,7 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
                 {search ? "Thử tìm kiếm khác" : "Nhấn + để thêm việc mới"}
               </p>
             </div>
-          )}
+          ) : (
 
           <div className="space-y-5">
             {groups.map((group) => (
@@ -293,6 +326,7 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
               </div>
             ))}
           </div>
+          )}
         </div>
       </div>
 
@@ -308,8 +342,8 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
         open={formOpen}
         editing={editing}
         onClose={closeModal}
-        onSave={(task) => setTasks((p) => upsert(p, task))}
-        onDelete={(id) => setTasks((p) => p.filter((t) => t.id !== id))}
+        onSave={handleSaveTask}
+        onDelete={handleDelete}
         tasks={tasks}
         defaultDate={todayStr}
       />
