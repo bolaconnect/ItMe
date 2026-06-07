@@ -3,14 +3,15 @@ import { motion, AnimatePresence } from "motion/react";
 import {
   Plus, Search, X, KeyRound, Copy, Eye, EyeOff, Pin, PinOff,
   Pencil, Trash2, Shield, ShieldAlert, ExternalLink,
-  Globe, Sparkles, Check, Loader2,
+  Globe, Sparkles, Check, Loader2, Lock, RefreshCw, Delete,
 } from "lucide-react";
 import { auth } from "../../lib/firebase";
 import {
   subscribeCredentials, addCredential, updateCredential,
-  deleteCredential, togglePinCredential,
+  deleteCredential, togglePinCredential, hashPin,
   type Credential,
 } from "../../lib/passwordsService";
+import { subscribeSettings, updateSettings } from "../../lib/settingsService";
 
 type Category = "social" | "bank" | "work" | "shopping" | "entertainment";
 
@@ -399,10 +400,239 @@ function CredentialCard({
   );
 }
 
+/* ── PIN Lock & Setup Screen ── */
+function PinLockScreen({
+  mode: initialMode,
+  savedHash,
+  onSuccess,
+  onCancel,
+}: {
+  mode: "unlock" | "setup" | "change";
+  savedHash?: string | null;
+  onSuccess: (hashedPin: string) => void;
+  onCancel?: () => void;
+}) {
+  const [mode, setMode] = useState<"unlock" | "setup" | "confirm" | "verify_current">(
+    initialMode === "change" ? "verify_current" : initialMode
+  );
+  const [pin, setPin] = useState("");
+  const [tempPin, setTempPin] = useState(""); // For setup flow
+  const [error, setError] = useState("");
+  const [shake, setShake] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const triggerShake = (errMsg: string) => {
+    setError(errMsg);
+    setShake(true);
+    setTimeout(() => {
+      setShake(false);
+      setPin("");
+    }, 500);
+  };
+
+  const handleKeyPress = async (num: string) => {
+    if (loading) return;
+    setError("");
+    if (pin.length >= 4) return;
+    const nextPin = pin + num;
+    setPin(nextPin);
+
+    if (nextPin.length === 4) {
+      setLoading(true);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      
+      if (mode === "unlock") {
+        const hashed = await hashPin(nextPin);
+        if (hashed === savedHash) {
+          onSuccess(hashed);
+        } else {
+          triggerShake("Mã PIN không đúng. Vui lòng thử lại.");
+        }
+      } else if (mode === "verify_current") {
+        const hashed = await hashPin(nextPin);
+        if (hashed === savedHash) {
+          setMode("setup");
+          setPin("");
+          setTempPin("");
+        } else {
+          triggerShake("Mã PIN hiện tại không đúng.");
+        }
+      } else if (mode === "setup") {
+        setTempPin(nextPin);
+        setMode("confirm");
+        setPin("");
+      } else if (mode === "confirm") {
+        if (nextPin === tempPin) {
+          const hashed = await hashPin(nextPin);
+          onSuccess(hashed);
+        } else {
+          triggerShake("Mã xác nhận không khớp. Hãy thử thiết lập lại.");
+          setMode("setup");
+          setTempPin("");
+        }
+      }
+      setLoading(false);
+    }
+  };
+
+  const handleBackspace = () => {
+    if (loading) return;
+    setError("");
+    setPin((p) => p.slice(0, -1));
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (loading) return;
+      if (e.key >= "0" && e.key <= "9") {
+        handleKeyPress(e.key);
+      } else if (e.key === "Backspace") {
+        handleBackspace();
+      } else if (e.key === "Escape" && onCancel) {
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pin, mode, tempPin, loading]);
+
+  const getTitle = () => {
+    if (mode === "unlock") return "Nhập mã PIN";
+    if (mode === "verify_current") return "Nhập mã PIN hiện tại";
+    if (mode === "setup") return "Thiết lập mã PIN mới";
+    if (mode === "confirm") return "Xác nhận mã PIN mới";
+    return "";
+  };
+
+  const getSubtitle = () => {
+    if (mode === "unlock") return "Nhập mã PIN 4 chữ số để mở khóa kho mật khẩu.";
+    if (mode === "verify_current") return "Xác minh mã PIN hiện tại trước khi thay đổi.";
+    if (mode === "setup") return "Tạo mã PIN 4 chữ số để bảo vệ kho mật khẩu.";
+    if (mode === "confirm") return "Nhập lại mã PIN mới để xác nhận.";
+    return "";
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+      <motion.div
+        className="w-full max-w-sm bg-card border border-border shadow-2xl rounded-3xl p-6 flex flex-col items-center justify-center"
+        initial={{ scale: 0.9, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+      >
+        <div className="relative mb-6">
+          <motion.div
+            className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white ${
+              error ? "bg-red-500" : "bg-primary"
+            }`}
+            animate={shake ? { x: [-10, 10, -10, 10, 0] } : {}}
+            transition={{ duration: 0.4 }}
+          >
+            {mode === "unlock" || mode === "verify_current" ? (
+              <Lock size={24} />
+            ) : (
+              <KeyRound size={24} />
+            )}
+          </motion.div>
+        </div>
+
+        <h2 className="text-foreground text-lg font-bold text-center mb-1">{getTitle()}</h2>
+        <p className="text-muted-foreground text-xs text-center mb-6 max-w-[260px]">
+          {getSubtitle()}
+        </p>
+
+        <motion.div
+          className="flex justify-center gap-3 mb-6"
+          animate={shake ? { x: [-8, 8, -8, 8, 0] } : {}}
+          transition={{ duration: 0.4 }}
+        >
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-200 ${
+                i < pin.length
+                  ? error
+                    ? "bg-red-500 border-red-500 scale-110"
+                    : "bg-primary border-primary scale-110"
+                  : "border-muted-foreground/30 bg-transparent"
+              }`}
+            />
+          ))}
+        </motion.div>
+
+        <div className="h-5 mb-2">
+          {error && (
+            <motion.p
+              className="text-red-500 text-xs font-semibold text-center"
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              {error}
+            </motion.p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
+          {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
+            <motion.button
+              key={num}
+              type="button"
+              onClick={() => handleKeyPress(num)}
+              className="w-full aspect-square rounded-2xl bg-muted/40 hover:bg-muted text-foreground text-lg font-bold flex items-center justify-center transition-colors outline-none"
+              whileTap={{ scale: 0.92 }}
+            >
+              {num}
+            </motion.button>
+          ))}
+          
+          {onCancel && (mode === "verify_current" || (mode === "setup" && initialMode === "change")) ? (
+            <motion.button
+              type="button"
+              onClick={onCancel}
+              className="w-full aspect-square rounded-2xl text-muted-foreground hover:text-foreground text-sm font-semibold flex items-center justify-center transition-colors outline-none"
+              whileTap={{ scale: 0.92 }}
+            >
+              Hủy
+            </motion.button>
+          ) : (
+            <div className="w-full aspect-square" />
+          )}
+          
+          <motion.button
+            key="0"
+            type="button"
+            onClick={() => handleKeyPress("0")}
+            className="w-full aspect-square rounded-2xl bg-muted/40 hover:bg-muted text-foreground text-lg font-bold flex items-center justify-center transition-colors outline-none"
+            whileTap={{ scale: 0.92 }}
+          >
+            0
+          </motion.button>
+          
+          <motion.button
+            type="button"
+            onClick={handleBackspace}
+            className="w-full aspect-square rounded-2xl text-muted-foreground hover:text-foreground flex items-center justify-center transition-colors outline-none"
+            whileTap={{ scale: 0.92 }}
+          >
+            <Delete size={20} />
+          </motion.button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 /* ── Main page ── */
 export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // PIN lock states
+  const [pinHash, setPinHash] = useState<string | null>(null);
+  const [pinLoading, setPinLoading] = useState(true);
+  const [unlocked, setUnlocked] = useState(false);
+  const [changePinMode, setChangePinMode] = useState(false);
+
   const [filter, setFilter] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -412,14 +642,25 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
 
   const uid = auth.currentUser?.uid;
 
+  // Listen for PIN hash
   useEffect(() => {
     if (!uid) return;
+    const unsub = subscribeSettings(uid, (settingsData) => {
+      setPinHash(settingsData.passwordPinHash || null);
+      setPinLoading(false);
+    });
+    return () => unsub();
+  }, [uid]);
+
+  // Listen for credentials only when unlocked!
+  useEffect(() => {
+    if (!uid || !unlocked) return;
     const unsub = subscribeCredentials(uid, (items) => {
       setCredentials(items);
       setLoading(false);
     });
     return () => unsub();
-  }, [uid]);
+  }, [uid, unlocked]);
 
   const stats = useMemo(() => {
     const total = credentials.length;
@@ -499,6 +740,49 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
     if (!cred) return;
     await togglePinCredential(uid, id, !cred.pinned);
     if (detail?.id === id) setDetail(d => d ? { ...d, pinned: !d.pinned } : d);
+  }
+
+  async function handleSetupPin(hashedPin: string) {
+    if (!uid) return;
+    setPinLoading(true);
+    await updateSettings(uid, { passwordPinHash: hashedPin });
+    setUnlocked(true);
+    setPinLoading(false);
+  }
+
+  async function handleChangePinSuccess(hashedPin: string) {
+    if (!uid) return;
+    setPinLoading(true);
+    await updateSettings(uid, { passwordPinHash: hashedPin });
+    setChangePinMode(false);
+    setPinLoading(false);
+  }
+
+  if (pinLoading) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-primary" size={28} />
+        <p className="text-muted-foreground text-sm">Đang tải cấu hình bảo mật...</p>
+      </div>
+    );
+  }
+
+  if (!unlocked) {
+    if (!pinHash) {
+      return (
+        <PinLockScreen
+          mode="setup"
+          onSuccess={handleSetupPin}
+        />
+      );
+    }
+    return (
+      <PinLockScreen
+        mode="unlock"
+        savedHash={pinHash}
+        onSuccess={() => setUnlocked(true)}
+      />
+    );
   }
 
   if (loading) {
@@ -585,9 +869,18 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
 
             <button
               onClick={() => setSearchOpen(!searchOpen)}
+              title="Tìm kiếm"
               className="shrink-0 w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
             >
               {searchOpen ? <X size={16} /> : <Search size={16} />}
+            </button>
+
+            <button
+              onClick={() => setChangePinMode(true)}
+              title="Đổi mã PIN bảo mật"
+              className="shrink-0 w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RefreshCw size={15} />
             </button>
           </div>
 
@@ -659,6 +952,17 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
             onEdit={() => openEdit(detail)}
             onDelete={() => handleDelete(detail.id)}
             onTogglePin={() => togglePin(detail.id)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {changePinMode && (
+          <PinLockScreen
+            mode="change"
+            savedHash={pinHash}
+            onSuccess={handleChangePinSuccess}
+            onCancel={() => setChangePinMode(false)}
           />
         )}
       </AnimatePresence>
