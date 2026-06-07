@@ -142,6 +142,7 @@ const AVAILABLE_TABS: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "habits",   label: "Thói quen",  icon: Repeat2 },
   { id: "finance",  label: "Tài chính",  icon: Wallet },
   { id: "notes",    label: "Ghi chú",    icon: BookOpen },
+  { id: "passwords",label: "Mật khẩu",   icon: Shield },
   { id: "calendar", label: "Lịch",       icon: Calendar },
   { id: "events",   label: "Sự kiện",    icon: CalendarDays },
 ];

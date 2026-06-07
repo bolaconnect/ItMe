@@ -13,8 +13,9 @@ import { NotesPage } from "./NotesPage";
 import { CalendarPage } from "./CalendarPage";
 import { ProfilePage } from "./ProfilePage";
 import { EventsPage } from "./EventsPage";
+import { PasswordsPage } from "./PasswordsPage";
 
-export type Page = "dashboard" | "tasks" | "goals" | "habits" | "finance" | "notes" | "calendar" | "events" | "profile";
+export type Page = "dashboard" | "tasks" | "goals" | "habits" | "finance" | "notes" | "passwords" | "calendar" | "events" | "profile";
 
 const CAL_TOGGLE_PAGES: Page[] = ["dashboard", "tasks", "goals", "habits", "notes", "events"];
 
@@ -77,6 +78,7 @@ export function MainApp() {
           {page === "goals"     && <GoalsPage onModal={setModalOpen} />}
           {page === "habits"    && <HabitsPage onModal={setModalOpen} />}
           {page === "notes"     && <NotesPage onModal={setModalOpen} />}
+          {page === "passwords" && <PasswordsPage onModal={setModalOpen} />}
           {page === "calendar"  && <CalendarPage />}
           {page === "events"    && <EventsPage />}
           {page === "profile"   && <div className="flex-1 overflow-hidden flex flex-col"><ProfilePage onNavigate={navigate} darkMode={darkMode} onToggleDark={() => setDarkMode(d => !d)} /></div>}

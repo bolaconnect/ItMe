@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, CheckSquare, Target, Repeat2, StickyNote,
-  Wallet, Calendar, CalendarDays, Menu, X, Settings, ChevronRight
+  Wallet, Calendar, CalendarDays, Menu, X, Settings, ChevronRight, KeyRound
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { Page } from "./MainApp";
@@ -17,6 +17,7 @@ const ALL_PAGES: { id: Page; icon: React.ElementType; label: string }[] = [
   { id: "goals",    icon: Target,      label: "Mục tiêu" },
   { id: "habits",   icon: Repeat2,     label: "Thói quen" },
   { id: "notes",    icon: StickyNote,  label: "Ghi chú" },
+  { id: "passwords",icon: KeyRound,    label: "Mật khẩu" },
   { id: "finance",  icon: Wallet,      label: "Tài chính" },
   { id: "calendar", icon: Calendar,    label: "Lịch" },
   { id: "events",   icon: CalendarDays,label: "Sự kiện" },
