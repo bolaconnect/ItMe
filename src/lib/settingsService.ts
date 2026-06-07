@@ -33,6 +33,7 @@ export interface UserSettingsData {
   metrics?: BodyMetrics;
   preferences?: Setting[];
   passwordPinHash?: string;
+  resetPinPending?: boolean;
 }
 
 function userDocRef(uid: string) {

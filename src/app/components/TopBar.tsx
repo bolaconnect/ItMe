@@ -1,7 +1,9 @@
-import { Bell, Search, User, X, Check, Clock, Flame } from "lucide-react";
+import { Bell, Search, User, X, Check, Clock, Flame, AlertTriangle, Calendar } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Page } from "./MainApp";
+import { auth } from "../../lib/firebase";
+import { useCalculatedNotifications } from "../../lib/notificationsService";
 
 const titles: Record<Page, string> = {
   dashboard: "Tổng quan",
@@ -29,24 +31,6 @@ const greetings: Record<Page, string> = {
   profile:   "Phát triển bản thân mỗi ngày.",
 };
 
-interface Notif {
-  id: number;
-  icon: React.ElementType;
-  iconColor: string;
-  iconBg: string;
-  title: string;
-  body: string;
-  time: string;
-  read: boolean;
-}
-
-const INIT_NOTIFS: Notif[] = [
-  { id: 1, icon: Clock,  iconColor: "#5B4CF5", iconBg: "#EEF0FF", title: "Họp team weekly",      body: "Bắt đầu sau 15 phút tại Phòng họp A",   time: "15 phút",  read: false },
-  { id: 2, icon: Flame,  iconColor: "#F59E0B", iconBg: "#FFFBEB", title: "Thói quen: Tập thể dục", body: "Đừng quên check-in thói quen hôm nay!", time: "1 giờ",    read: false },
-  { id: 3, icon: Check,  iconColor: "#10B981", iconBg: "#ECFDF5", title: "Nộp báo cáo tháng",    body: "Deadline vào cuối ngày hôm nay",          time: "3 giờ",    read: true  },
-  { id: 4, icon: Clock,  iconColor: "#EC4899", iconBg: "#FDF2F8", title: "Sinh nhật Minh Anh",   body: "Hôm nay là sinh nhật của Minh Anh 🎂",   time: "Hôm nay",  read: true  },
-];
-
 export function TopBar({
   activePage,
   onNavigate,
@@ -57,18 +41,16 @@ export function TopBar({
   const [searchOpen, setSearchOpen]     = useState(false);
   const [searchQuery, setSearchQuery]   = useState("");
   const [notifOpen, setNotifOpen]       = useState(false);
-  const [notifs, setNotifs]             = useState<Notif[]>(INIT_NOTIFS);
   const notifRef                        = useRef<HTMLDivElement>(null);
   const searchRef                       = useRef<HTMLDivElement>(null);
 
-  const unread = notifs.filter(n => !n.read).length;
+  const uid = auth.currentUser?.uid;
+  const { notifs, unreadCount: unread, markRead, markAllRead, dismissNotif } = useCalculatedNotifications(uid);
 
-  function markAllRead() {
-    setNotifs(prev => prev.map(n => ({ ...n, read: true })));
-  }
-
-  function dismissNotif(id: number) {
-    setNotifs(prev => prev.filter(n => n.id !== id));
+  function handleNotifClick(n: typeof notifs[number]) {
+    markRead(n.id);
+    onNavigate(n.targetPage);
+    setNotifOpen(false);
   }
 
   useEffect(() => {
@@ -177,36 +159,51 @@ export function TopBar({
                       <Bell size={24} className="text-muted-foreground opacity-40" />
                       <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>Không có thông báo</p>
                     </div>
-                  ) : notifs.map(n => (
-                    <div
-                      key={n.id}
-                      className={`flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 transition-colors ${
-                        !n.read ? "bg-primary/5" : "hover:bg-muted/40"
-                      }`}
-                    >
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: n.iconBg }}>
-                        <n.icon size={14} style={{ color: n.iconColor }} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-1">
-                          <p className="text-foreground truncate" style={{ fontWeight: n.read ? 500 : 700, fontSize: "0.8125rem" }}>
-                            {n.title}
-                          </p>
-                          <button
-                            onClick={() => dismissNotif(n.id)}
-                            className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5"
-                          >
-                            <X size={12} />
-                          </button>
+                  ) : notifs.map(n => {
+                    const urgencyLabel = n.type === "overdue"
+                      ? { text: "Khẩn cấp", color: "#EF4444" }
+                      : n.type === "upcoming"
+                      ? { text: "Quan trọng", color: "#F59E0B" }
+                      : n.type === "event"
+                      ? { text: "Sự kiện", color: "#3B82F6" }
+                      : { text: "Thói quen", color: "#8B5CF6" };
+                    return (
+                      <div
+                        key={n.id}
+                        className={`flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 transition-colors cursor-pointer group ${
+                          !n.read ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
+                        }`}
+                        onClick={() => handleNotifClick(n)}
+                      >
+                        <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5" style={{ background: n.iconBg }}>
+                          <n.icon size={14} style={{ color: n.iconColor }} />
                         </div>
-                        <p className="text-muted-foreground mt-0.5 leading-snug" style={{ fontSize: "0.75rem" }}>{n.body}</p>
-                        <p className="text-muted-foreground mt-1 opacity-60" style={{ fontSize: "0.7rem" }}>{n.time} trước</p>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="text-foreground truncate" style={{ fontWeight: n.read ? 500 : 700, fontSize: "0.8125rem" }}>
+                              {n.title}
+                            </p>
+                            <button
+                              onClick={e => { e.stopPropagation(); dismissNotif(n.id); }}
+                              className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                          <p className="text-muted-foreground mt-0.5 leading-snug" style={{ fontSize: "0.75rem" }}>{n.body}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span style={{ fontSize: "0.65rem", fontWeight: 700, color: urgencyLabel.color }}>
+                              {urgencyLabel.text}
+                            </span>
+                            <span className="text-muted-foreground opacity-60" style={{ fontSize: "0.65rem" }}>{n.time}</span>
+                          </div>
+                        </div>
+                        {!n.read && (
+                          <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
+                        )}
                       </div>
-                      {!n.read && (
-                        <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </motion.div>
             )}

@@ -5,6 +5,7 @@ import {
   Pencil, Trash2, Shield, ShieldAlert, ExternalLink,
   Globe, Sparkles, Check, Loader2, Lock, RefreshCw, Delete,
 } from "lucide-react";
+import { signOut } from "firebase/auth";
 import { auth } from "../../lib/firebase";
 import {
   subscribeCredentials, addCredential, updateCredential,
@@ -406,11 +407,13 @@ function PinLockScreen({
   savedHash,
   onSuccess,
   onCancel,
+  onForgotPin,
 }: {
   mode: "unlock" | "setup" | "change";
   savedHash?: string | null;
   onSuccess: (hashedPin: string) => void;
   onCancel?: () => void;
+  onForgotPin?: () => void;
 }) {
   const [mode, setMode] = useState<"unlock" | "setup" | "confirm" | "verify_current">(
     initialMode === "change" ? "verify_current" : initialMode
@@ -513,7 +516,7 @@ function PinLockScreen({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
+    <div className="absolute inset-0 z-[90] flex items-center justify-center p-4 bg-background/80 backdrop-blur-md">
       <motion.div
         className="w-full max-w-sm bg-card border border-border shadow-2xl rounded-3xl p-6 flex flex-col items-center justify-center"
         initial={{ scale: 0.9, opacity: 0 }}
@@ -572,6 +575,16 @@ function PinLockScreen({
           )}
         </div>
 
+        {mode === "unlock" && onForgotPin && (
+          <button
+            type="button"
+            onClick={onForgotPin}
+            className="text-xs text-primary hover:underline font-semibold mb-4 transition-all"
+          >
+            Quên mã PIN?
+          </button>
+        )}
+
         <div className="grid grid-cols-3 gap-3 w-full max-w-[240px]">
           {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((num) => (
             <motion.button
@@ -622,6 +635,95 @@ function PinLockScreen({
   );
 }
 
+/* ── Custom Alert & Confirm Dialog ── */
+function CustomDialog({
+  isOpen,
+  title,
+  message,
+  type,
+  variant = "info",
+  onConfirm,
+  onCancel,
+}: {
+  isOpen: boolean;
+  title: string;
+  message: string;
+  type: "alert" | "confirm";
+  variant?: "danger" | "info" | "success";
+  onConfirm: () => void;
+  onCancel?: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <motion.div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={onCancel || onConfirm}
+          />
+          
+          <motion.div
+            className="relative bg-card w-full max-w-sm rounded-3xl border border-border shadow-2xl overflow-hidden p-6 flex flex-col items-center text-center"
+            initial={{ y: 20, opacity: 0, scale: 0.95 }}
+            animate={{ y: 0, opacity: 1, scale: 1 }}
+            exit={{ y: 20, opacity: 0, scale: 0.95 }}
+            transition={{ type: "spring", stiffness: 450, damping: 32 }}
+          >
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-4 shrink-0 ${
+              variant === "danger"
+                ? "bg-red-500/10 text-red-500"
+                : variant === "success"
+                ? "bg-green-500/10 text-green-500"
+                : "bg-primary/10 text-primary"
+            }`}>
+              {variant === "danger" ? (
+                <ShieldAlert size={22} />
+              ) : variant === "success" ? (
+                <Check size={22} />
+              ) : (
+                <Lock size={22} />
+              )}
+            </div>
+
+            <h3 className="text-foreground font-bold text-lg mb-2">{title}</h3>
+            <p className="text-muted-foreground text-sm leading-relaxed mb-6 whitespace-pre-line">
+              {message}
+            </p>
+
+            <div className="flex gap-2.5 w-full">
+              {type === "confirm" && onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex-1 py-2.5 rounded-2xl bg-muted text-foreground hover:bg-secondary transition-all font-semibold text-sm outline-none"
+                >
+                  Hủy
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onConfirm}
+                className={`flex-1 py-2.5 rounded-2xl text-white font-semibold text-sm outline-none transition-all active:scale-[0.98] shadow-md ${
+                  variant === "danger"
+                    ? "bg-red-500 hover:bg-red-600 shadow-red-500/10"
+                    : variant === "success"
+                    ? "bg-green-500 hover:bg-green-600 shadow-green-500/10"
+                    : "bg-primary hover:opacity-90 shadow-primary/10"
+                }`}
+              >
+                Đồng ý
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
 /* ── Main page ── */
 export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }) {
   const [credentials, setCredentials] = useState<Credential[]>([]);
@@ -632,6 +734,24 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
   const [pinLoading, setPinLoading] = useState(true);
   const [unlocked, setUnlocked] = useState(false);
   const [changePinMode, setChangePinMode] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
+
+  // Custom alert & confirm state
+  const [dialog, setDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: "alert" | "confirm";
+    variant?: "danger" | "info" | "success";
+    onConfirm: () => void;
+    onCancel?: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "alert",
+    onConfirm: () => {},
+  });
 
   const [filter, setFilter] = useState<Category | "all">("all");
   const [search, setSearch] = useState("");
@@ -642,11 +762,12 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
 
   const uid = auth.currentUser?.uid;
 
-  // Listen for PIN hash
+  // Listen for PIN hash & reset status
   useEffect(() => {
     if (!uid) return;
     const unsub = subscribeSettings(uid, (settingsData) => {
       setPinHash(settingsData.passwordPinHash || null);
+      setResetPending(settingsData.resetPinPending || false);
       setPinLoading(false);
     });
     return () => unsub();
@@ -728,10 +849,20 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
 
   async function handleDelete(id: string) {
     if (!uid) return;
-    if (!confirm("Xóa tài khoản này?")) return;
-    await deleteCredential(uid, id);
-    setDetail(null);
-    onModal?.(false);
+    setDialog({
+      isOpen: true,
+      title: "Xóa tài khoản",
+      message: "Bạn có chắc chắn muốn xóa tài khoản này không? Hành động này không thể hoàn tác.",
+      type: "confirm",
+      variant: "danger",
+      onConfirm: async () => {
+        setDialog(d => ({ ...d, isOpen: false }));
+        await deleteCredential(uid, id);
+        setDetail(null);
+        onModal?.(false);
+      },
+      onCancel: () => setDialog(d => ({ ...d, isOpen: false })),
+    });
   }
 
   async function togglePin(id: string) {
@@ -745,7 +876,7 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
   async function handleSetupPin(hashedPin: string) {
     if (!uid) return;
     setPinLoading(true);
-    await updateSettings(uid, { passwordPinHash: hashedPin });
+    await updateSettings(uid, { passwordPinHash: hashedPin, resetPinPending: false });
     setUnlocked(true);
     setPinLoading(false);
   }
@@ -753,9 +884,27 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
   async function handleChangePinSuccess(hashedPin: string) {
     if (!uid) return;
     setPinLoading(true);
-    await updateSettings(uid, { passwordPinHash: hashedPin });
+    await updateSettings(uid, { passwordPinHash: hashedPin, resetPinPending: false });
     setChangePinMode(false);
     setPinLoading(false);
+  }
+
+  async function handleForgotPin() {
+    if (!uid) return;
+    setDialog({
+      isOpen: true,
+      title: "Đặt lại mã PIN",
+      message: "Để đặt lại mã PIN, tài khoản của bạn sẽ tự động đăng xuất. Bạn cần đăng nhập lại để thiết lập mã PIN mới.\n\nBạn có muốn tiếp tục không?",
+      type: "confirm",
+      variant: "info",
+      onConfirm: async () => {
+        setDialog(d => ({ ...d, isOpen: false }));
+        setPinLoading(true);
+        await updateSettings(uid, { resetPinPending: true });
+        await signOut(auth);
+      },
+      onCancel: () => setDialog(d => ({ ...d, isOpen: false })),
+    });
   }
 
   if (pinLoading) {
@@ -768,20 +917,31 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
   }
 
   if (!unlocked) {
-    if (!pinHash) {
-      return (
-        <PinLockScreen
-          mode="setup"
-          onSuccess={handleSetupPin}
-        />
-      );
-    }
     return (
-      <PinLockScreen
-        mode="unlock"
-        savedHash={pinHash}
-        onSuccess={() => setUnlocked(true)}
-      />
+      <>
+        {!pinHash || resetPending ? (
+          <PinLockScreen
+            mode="setup"
+            onSuccess={handleSetupPin}
+          />
+        ) : (
+          <PinLockScreen
+            mode="unlock"
+            savedHash={pinHash}
+            onSuccess={() => setUnlocked(true)}
+            onForgotPin={handleForgotPin}
+          />
+        )}
+        <CustomDialog
+          isOpen={dialog.isOpen}
+          title={dialog.title}
+          message={dialog.message}
+          type={dialog.type}
+          variant={dialog.variant}
+          onConfirm={dialog.onConfirm}
+          onCancel={dialog.onCancel}
+        />
+      </>
     );
   }
 
@@ -966,6 +1126,16 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
           />
         )}
       </AnimatePresence>
+
+      <CustomDialog
+        isOpen={dialog.isOpen}
+        title={dialog.title}
+        message={dialog.message}
+        type={dialog.type}
+        variant={dialog.variant}
+        onConfirm={dialog.onConfirm}
+        onCancel={dialog.onCancel}
+      />
     </>
   );
 }
