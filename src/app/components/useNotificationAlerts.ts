@@ -11,6 +11,7 @@ import type { CalculatedNotif } from "../../lib/notificationsService";
 import { useToast } from "./ToastNotification";
 import * as webNotif from "../../lib/webNotificationService";
 import type { Page } from "./MainApp";
+import { onForegroundMessage } from "../../lib/fcmService";
 
 export function useNotificationAlerts(
   notifs: CalculatedNotif[],
@@ -21,6 +22,28 @@ export function useNotificationAlerts(
   const { showToast } = useToast();
   const alertedRef = useRef<Set<string>>(new Set());
   const initializedRef = useRef(false);
+
+  // Lắng nghe thông báo đẩy chạy ngầm khi ứng dụng đang mở (foreground)
+  useEffect(() => {
+    const unsubscribe = onForegroundMessage((payload) => {
+      console.log("[Alerts] Nhận tin nhắn FCM foreground:", payload);
+      const { title, body } = payload.notification || {};
+      const { type, tag, targetPage } = payload.data || {};
+      
+      showToast({
+        type: type || "upcoming",
+        title: title || "Thông báo từ ItMe",
+        body: body || "",
+        onClick: () => {
+          if (tag) markRead(tag);
+          if (targetPage) onNavigate(targetPage as Page);
+        },
+      });
+    });
+
+    return () => unsubscribe();
+  }, [markRead, onNavigate, showToast]);
+
 
   useEffect(() => {
     // Debug log

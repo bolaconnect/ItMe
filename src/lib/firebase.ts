@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getMessaging } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -17,4 +18,15 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-export { app, auth, db };
+let messaging = null;
+if (typeof window !== "undefined") {
+  try {
+    messaging = getMessaging(app);
+  } catch (err) {
+    console.warn("Firebase Messaging is not supported in this browser:", err);
+  }
+}
+
+export { app, auth, db, messaging };
+
+

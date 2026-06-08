@@ -13,6 +13,7 @@ import { subscribeSettings, updateSettings, updateUserProfileAuth, UserProfile, 
 import { useEffect } from "react";
 import * as webNotif from "../../lib/webNotificationService";
 import { useToast } from "./ToastNotification";
+import { requestFCMToken, removeFCMToken } from "../../lib/fcmService";
 
 /* ── Mock Fallbacks ── */
 const INITIAL_PROFILE: UserProfile = {
@@ -347,6 +348,15 @@ export function ProfilePage({
     if (uid) updateSettings(uid, { preferences: newSettings });
   }
 
+  // Đồng bộ FCM token nếu thông báo đang bật
+  useEffect(() => {
+    if (uid && webPushEnabled && !localStorage.getItem("itme_fcm_token")) {
+      requestFCMToken(uid).then(token => {
+        if (token) localStorage.setItem("itme_fcm_token", token);
+      });
+    }
+  }, [uid, webPushEnabled]);
+
   async function toggleWebPush() {
     if (!webNotif.isSupported()) return;
 
@@ -356,10 +366,43 @@ export function ProfilePage({
       if (perm === "granted") {
         webNotif.setEnabled(true);
         setWebPushEnabledState(true);
+        
+        if (uid) {
+          showToast({
+            type: "info",
+            title: "Đang đăng ký...",
+            body: "Đang đăng ký thiết bị nhận thông báo đẩy...",
+          });
+          const token = await requestFCMToken(uid);
+          if (token) {
+            localStorage.setItem("itme_fcm_token", token);
+            showToast({
+              type: "success",
+              title: "Đăng ký thành công",
+              body: "Thiết bị này đã sẵn sàng nhận thông báo đẩy chạy nền.",
+            });
+          } else {
+            showToast({
+              type: "error",
+              title: "Lỗi đăng ký",
+              body: "Không thể đăng ký thiết bị với máy chủ thông báo.",
+            });
+          }
+        }
       }
     } else {
+      const savedToken = localStorage.getItem("itme_fcm_token");
+      if (uid && savedToken) {
+        await removeFCMToken(uid, savedToken);
+        localStorage.removeItem("itme_fcm_token");
+      }
       webNotif.setEnabled(false);
       setWebPushEnabledState(false);
+      showToast({
+        type: "success",
+        title: "Đã tắt thông báo đẩy",
+        body: "Bạn sẽ không nhận được thông báo đẩy trên thiết bị này nữa.",
+      });
     }
   }
 

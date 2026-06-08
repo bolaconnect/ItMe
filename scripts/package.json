@@ -1,0 +1,9 @@
+{
+  "name": "itme-push-scripts",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}

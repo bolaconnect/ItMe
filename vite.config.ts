@@ -24,7 +24,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.png', 'apple-touch-icon.png'],
+      includeAssets: ['icon.png', 'apple-touch-icon.png', 'firebase-messaging-sw.js'],
       manifest: {
         name: 'ItMe – Quản lý bản thân',
         short_name: 'ItMe',
@@ -54,7 +54,9 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: '/ItMe/index.html',
         navigateFallbackDenylist: [/^\/api\//],
+        importScripts: ['/ItMe/firebase-messaging-sw.js'],
         runtimeCaching: [
+
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
