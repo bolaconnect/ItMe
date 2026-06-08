@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { Task } from "../components/tasks/taskData";
 import { Goal } from "../../lib/goalsService";
 import type { Page } from "../components/MainApp";
+import { UserSettingsData } from "../../lib/settingsService";
 
 /* ── Habit Types ── */
 export type Frequency = "daily" | "weekdays" | "weekends";
@@ -54,6 +55,9 @@ interface AppState {
 
   bottomNavTabs: Page[];
   setBottomNavTabs: (tabs: Page[]) => void;
+
+  settings: UserSettingsData;
+  setSettings: (updater: UserSettingsData | ((prev: UserSettingsData) => UserSettingsData)) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -77,6 +81,27 @@ export const useAppStore = create<AppState>((set) => ({
     goals: typeof updater === "function" ? updater(state.goals) : updater,
   })),
 
-  bottomNavTabs: ["tasks", "calendar", "notes", "finance"],
+  bottomNavTabs: ["events", "goals", "habits", "finance"],
   setBottomNavTabs: (tabs) => set({ bottomNavTabs: tabs }),
+
+  settings: {},
+  setSettings: (updater) => set((state) => ({
+    settings: typeof updater === "function" ? updater(state.settings) : updater,
+  })),
 }));
+
+export function getRecoveryInfo(habits: Habit[], goals: Goal[], settings: UserSettingsData) {
+  const totalItems = habits.length + goals.length;
+  const maxRecoveries = Math.ceil(totalItems / 3) * 5;
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  let usedThisMonth = 0;
+  if (settings?.streakRecovery?.month === currentMonth) {
+    usedThisMonth = settings.streakRecovery.used;
+  }
+  return {
+    maxRecoveries,
+    usedThisMonth,
+    remaining: Math.max(0, maxRecoveries - usedThisMonth),
+    currentMonth,
+  };
+}

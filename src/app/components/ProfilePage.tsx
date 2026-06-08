@@ -140,23 +140,32 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
 
 /* ── Nav Customizer Modal ── */
 const AVAILABLE_TABS: { id: Page; label: string; icon: React.ElementType }[] = [
-  { id: "tasks",    label: "Việc làm",   icon: Check },
   { id: "goals",    label: "Mục tiêu",   icon: Target },
   { id: "habits",   label: "Thói quen",  icon: Repeat2 },
   { id: "finance",  label: "Tài chính",  icon: Wallet },
   { id: "notes",    label: "Ghi chú",    icon: BookOpen },
   { id: "passwords",label: "Mật khẩu",   icon: Shield },
-  { id: "calendar", label: "Lịch",       icon: Calendar },
   { id: "events",   label: "Sự kiện",    icon: CalendarDays },
 ];
-import { Calendar, CalendarDays } from "lucide-react";
+import { CalendarDays } from "lucide-react";
 
 function NavCustomizerModal({
   currentTabs, onSave, onClose,
 }: {
   currentTabs: Page[]; onSave: (tabs: Page[]) => void; onClose: () => void;
 }) {
-  const [selected, setSelected] = useState<Page[]>(currentTabs);
+  const [selected, setSelected] = useState<Page[]>(() => {
+    let normalized = currentTabs.map(t => (t === "tasks" || t === "calendar") ? "events" : t);
+    normalized = Array.from(new Set(normalized));
+    const available = ["goals", "habits", "finance", "notes", "passwords", "events"] as Page[];
+    for (const tab of available) {
+      if (normalized.length >= 4) break;
+      if (!normalized.includes(tab)) {
+        normalized.push(tab);
+      }
+    }
+    return normalized.slice(0, 4);
+  });
 
   function toggle(id: Page) {
     if (selected.includes(id)) {
@@ -227,7 +236,7 @@ function EditProfileSheet({
   const [bio,   setBio]   = useState(profile.bio);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border">
@@ -323,12 +332,7 @@ export function ProfilePage({
     { label: "Mục tiêu active",  value: `${activeGoals}`,       icon: Target,   color: "var(--primary)", bg: "var(--secondary)" },
   ];
 
-  const QUICK_LINKS = [
-    { icon: Target,   label: "Mục tiêu của tôi",  sub: `${activeGoals} mục tiêu đang theo dõi`, page: "goals"  },
-    { icon: Repeat2,  label: "Thói quen hàng ngày", sub: `${habits.length} thói quen`,          page: "habits" },
-    { icon: Wallet,   label: "Tài chính",           sub: "Xem tổng quan thu chi",               page: "finance" },
-    { icon: BookOpen, label: "Ghi chú của tôi",     sub: "Tất cả ghi chép",                     page: "notes"  },
-  ];
+
 
   // Ghi đè tên/email từ Firebase Auth nếu có
   const currentUser = auth.currentUser;
@@ -526,28 +530,7 @@ export function ProfilePage({
           </div>
         </div>
 
-        {/* ── Quick links ── */}
-        <div className="bg-card rounded-2xl border border-border overflow-hidden">
-          <div className="px-4 py-3 border-b border-border">
-            <p className="text-foreground" style={{ fontWeight: 700, fontSize: "0.875rem" }}>Truy cập nhanh</p>
-          </div>
-          {QUICK_LINKS.map(({ icon: Icon, label, sub, page }, i) => (
-            <button
-              key={label}
-              onClick={() => onNavigate?.(page)}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 hover:bg-muted transition-colors text-left ${i < QUICK_LINKS.length - 1 ? "border-b border-border" : ""}`}
-            >
-              <div className="w-9 h-9 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
-                <Icon size={17} className="text-muted-foreground" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-foreground" style={{ fontWeight: 600, fontSize: "0.875rem" }}>{label}</p>
-                <p className="text-muted-foreground truncate" style={{ fontSize: "0.775rem" }}>{sub}</p>
-              </div>
-              <ChevronRight size={15} className="text-muted-foreground flex-shrink-0" />
-            </button>
-          ))}
-        </div>
+
 
         {/* ── Notifications ── */}
         <div className="bg-card rounded-2xl border border-border overflow-hidden">
@@ -719,7 +702,12 @@ export function ProfilePage({
       {editNav && (
         <NavCustomizerModal
           currentTabs={bottomNavTabs}
-          onSave={setBottomNavTabs}
+          onSave={async (tabs) => {
+            setBottomNavTabs(tabs);
+            if (uid) {
+              await updateSettings(uid, { bottomNavTabs: tabs });
+            }
+          }}
           onClose={() => setEditNav(false)}
         />
       )}

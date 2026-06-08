@@ -99,8 +99,8 @@ export function Dashboard({ onNavigate }: DashboardProps) {
     const currentMonth = TODAY.substring(0, 7); // YYYY-MM
     let incSum = 0;
     let expSum = 0;
-    incomes.forEach(i => { if (i.date.startsWith(currentMonth)) incSum += i.amount; });
-    expenses.forEach(e => { if (e.date.startsWith(currentMonth)) expSum += e.amount; });
+    incomes.forEach(i => { if (i.date?.startsWith(currentMonth)) incSum += i.amount; });
+    expenses.forEach(e => { if (e.date?.startsWith(currentMonth)) expSum += e.amount; });
 
     // Weekly spending chart (last 7 days)
     const chartData = [];

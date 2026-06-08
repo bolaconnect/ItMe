@@ -1,13 +1,14 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { LunarCountdownBadge } from "./LunarCountdown";
+import { StreakRecoveryModal } from "./StreakRecoveryModal";
 import {
   Plus, Flame, CheckCircle2, Circle, MoreHorizontal,
-  Pencil, Trash2, X, Trophy, TrendingUp, Zap, RotateCcw,
+  Pencil, Trash2, X, Trophy, TrendingUp, Zap, RotateCcw, ShieldPlus,
   Sun, Moon, Coffee, Dumbbell, Book, Heart, Droplets, Music,
 } from "lucide-react";
 
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore, getRecoveryInfo } from "../store/useAppStore";
 import type { Habit, HabitIcon, Frequency } from "../store/useAppStore";
 import { auth } from "../../lib/firebase";
 import { subscribeHabits, addHabit, updateHabit, deleteHabit as deleteHabitFromFirebase } from "../../lib/habitsService";
@@ -134,7 +135,7 @@ function HabitForm({
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
@@ -256,6 +257,7 @@ function HabitCard({
   onToggleToday: (id: string) => void;
   onEdit: (h: Habit) => void;
   onDelete: (id: string) => void;
+  onRecover: (id: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const doneToday = habit.completedDates.includes(TODAY);
@@ -364,6 +366,13 @@ function HabitCard({
           <Trophy size={11} className="text-amber-400" />
           Tốt nhất: {habit.best}
         </span>
+        <button
+          onClick={() => onRecover(habit.id)}
+          className="ml-auto flex items-center justify-center p-1.5 rounded-lg text-primary hover:bg-primary/10 transition-colors"
+          title="Cứu chuỗi"
+        >
+          <ShieldPlus size={14} />
+        </button>
       </div>
     </motion.div>
   );
@@ -371,10 +380,12 @@ function HabitCard({
 
 /* ── Main page ── */
 export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
-  const { habits, setHabits }   = useAppStore();
+  const { habits, setHabits, goals, settings }   = useAppStore();
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing]   = useState<Habit | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [filter, setFilter]     = useState<"all" | "done" | "pending">("all");
+  const [recoveryItemId, setRecoveryItemId] = useState<string | null>(null);
 
   const uid = auth.currentUser?.uid;
 
@@ -390,7 +401,7 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
   function openModal()  { setFormOpen(true);  onModal?.(true);  }
   function closeModal() { setFormOpen(false); onModal?.(false); }
-  const [filter, setFilter]     = useState<"all" | "done" | "pending">("all");
+
 
   const todayDone  = habits.filter(h => h.completedDates.includes(TODAY)).length;
   const totalToday = habits.length;
@@ -447,7 +458,13 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Stats header ── */}
         <div className="shrink-0 px-4 lg:px-6 pt-4 pb-3 space-y-4">
-          <LunarCountdownBadge />
+          <div className="flex items-center justify-between">
+            <LunarCountdownBadge />
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-xl font-medium text-sm">
+              <ShieldPlus size={16} />
+              Cứu chuỗi: {getRecoveryInfo(habits, goals, settings).remaining}/{getRecoveryInfo(habits, goals, settings).maxRecoveries}
+            </div>
+          </div>
 
           {/* 3 stat cards */}
           <div className="grid grid-cols-3 gap-3">
@@ -558,6 +575,7 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
                       onToggleToday={toggleToday}
                       onEdit={openEdit}
                       onDelete={deleteHabit}
+                      onRecover={setRecoveryItemId}
                     />
                   ))}
                 </AnimatePresence>
@@ -571,7 +589,7 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
       {/* FAB */}
       <button
         onClick={openAdd}
-        className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-40 w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+        className="fixed bottom-20 right-[72px] lg:bottom-6 lg:right-6 z-40 w-11 h-11 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
       >
         <Plus size={20} />
       </button>
@@ -584,6 +602,12 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
             onSave={saveHabit}
             onClose={() => { closeModal(); setEditing(null); }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {recoveryItemId && (
+          <StreakRecoveryModal onClose={() => setRecoveryItemId(null)} filterType="habit" filterItemId={recoveryItemId} />
         )}
       </AnimatePresence>
     </>

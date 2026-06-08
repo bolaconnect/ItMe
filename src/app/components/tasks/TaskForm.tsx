@@ -23,6 +23,10 @@ export function TaskForm({ open, editing, onClose, onSave, onDelete, tasks, defa
   const [dueTime,  setDueTime]  = useState("");
   const [err,      setErr]      = useState("");
 
+  const now = new Date();
+  const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const currentHHmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
   useEffect(() => {
     if (open) {
       setTitle(editing?.title       ?? "");
@@ -131,10 +135,15 @@ export function TaskForm({ open, editing, onClose, onSave, onDelete, tasks, defa
         {/* Due date + time */}
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Ngày hết hạn">
-            <FormInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
+            <FormInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={localToday} />
           </FormField>
           <FormField label="Giờ">
-            <FormInput type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} />
+            <FormInput 
+              type="time" 
+              value={dueTime} 
+              onChange={(e) => setDueTime(e.target.value)} 
+              min={dueDate === localToday ? currentHHmm : undefined}
+            />
           </FormField>
         </div>
 

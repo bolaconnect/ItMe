@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   LayoutDashboard, CheckSquare, Target, Repeat2, StickyNote,
-  Wallet, Calendar, CalendarDays, Menu, X, Settings, ChevronRight, KeyRound
+  Wallet, CalendarDays, Menu, X, Settings, ChevronRight, KeyRound
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import type { Page } from "./MainApp";
@@ -13,22 +13,20 @@ interface BottomNavProps {
 }
 
 const ALL_PAGES: { id: Page; icon: React.ElementType; label: string }[] = [
-  { id: "tasks",    icon: CheckSquare, label: "Việc làm" },
+  { id: "events",   icon: CalendarDays,label: "Sự kiện" },
   { id: "goals",    icon: Target,      label: "Mục tiêu" },
   { id: "habits",   icon: Repeat2,     label: "Thói quen" },
   { id: "notes",    icon: StickyNote,  label: "Ghi chú" },
   { id: "passwords",icon: KeyRound,    label: "Mật khẩu" },
   { id: "finance",  icon: Wallet,      label: "Tài chính" },
-  { id: "calendar", icon: Calendar,    label: "Lịch" },
-  { id: "events",   icon: CalendarDays,label: "Sự kiện" },
 ];
 
 export function BottomNav({ activePage, onNavigate }: BottomNavProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const bottomNavTabs = useAppStore(state => state.bottomNavTabs);
 
-  // Map 3 IDs from store to full page objects
-  const tabItems = bottomNavTabs.map(id => ALL_PAGES.find(p => p.id === id)).filter(Boolean) as typeof ALL_PAGES;
+  // Map 3 IDs from store to full page objects, treating 'tasks' as 'events' for backward compatibility
+  const tabItems = bottomNavTabs.map(id => ALL_PAGES.find(p => p.id === (id === "tasks" ? "events" : id))).filter(Boolean) as typeof ALL_PAGES;
 
   // Split tabs for left and right of Dashboard
   const leftItems = tabItems.slice(0, 2);
@@ -93,12 +91,12 @@ export function BottomNav({ activePage, onNavigate }: BottomNavProps) {
         </div>
       </nav>
 
-      {/* Floating Menu Button (Left) */}
+      {/* Floating Menu Button (Always on the rightmost) */}
       <button
         onClick={() => setMenuOpen(true)}
-        className="fixed bottom-20 left-4 z-50 w-11 h-11 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform lg:hidden"
+        className="fixed bottom-20 right-4 z-40 w-11 h-11 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform lg:hidden"
       >
-        <Menu size={22} />
+        <Menu size={20} />
       </button>
 
       {/* Menu Modal (BottomSheet) */}

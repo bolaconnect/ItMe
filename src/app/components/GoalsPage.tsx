@@ -1,14 +1,26 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { LunarCountdownBadge } from "./LunarCountdown";
+import { StreakRecoveryModal } from "./StreakRecoveryModal";
 import {
-  Plus, Target, Trophy, Flame, TrendingUp, X, Check,
-  ChevronRight, Calendar, MoreHorizontal, Pencil, Trash2,
+  Plus, Target, Trophy, Flame, TrendingUp, X, Check, ShieldPlus,
+  ChevronRight, Calendar, MoreHorizontal, Pencil, Trash2, CheckCircle2, Circle
 } from "lucide-react";
 import { auth } from "../../lib/firebase";
 import { subscribeGoals, addGoal, updateGoal, deleteGoal as deleteGoalFromFirebase, Goal, GoalCategory } from "../../lib/goalsService";
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore, getRecoveryInfo } from "../store/useAppStore";
 import { Loader2 } from "lucide-react";
+
+const TODAY = new Date().toISOString().slice(0, 10);
+const DAY_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+function getPast7Days() {
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+}
 
 const CAT_COLOR: Record<GoalCategory, { text: string; bg: string }> = {
   "Sức khỏe": { text: "#10B981", bg: "#ECFDF5" },
@@ -39,6 +51,33 @@ function ProgressRing({ pct, size = 52, stroke = 5, color }: { pct: number; size
   );
 }
 
+function WeekDots({ dates, color }: { dates: string[], color: string }) {
+  const past7 = getPast7Days();
+  return (
+    <div className="flex items-center gap-1.5 mt-2">
+      {past7.map((date, i) => {
+        const d = new Date(date);
+        const dayLabel = DAY_LABELS[d.getDay()];
+        const done = dates.includes(date);
+        const isToday = date === TODAY;
+        return (
+          <div key={date} className="flex flex-col items-center gap-0.5">
+            <div
+              className={`w-[18px] h-[18px] rounded-md transition-all ${isToday ? "ring-1 ring-offset-1" : ""}`}
+              style={{
+                background: done ? color : "var(--muted)",
+                opacity: done ? 1 : 0.4,
+                ringColor: color,
+              }}
+            />
+            <span style={{ fontSize: "0.5rem", color: "var(--muted-foreground)" }}>{dayLabel}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function GoalForm({
   initial,
   onSave,
@@ -48,31 +87,58 @@ function GoalForm({
   onSave: (g: Partial<Goal> & Omit<Goal, "id" | "createdAt">) => void;
   onClose: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const initialDeadline = initial?.deadline ?? (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+
   const [title, setTitle]       = useState(initial?.title ?? "");
   const [desc, setDesc]         = useState(initial?.desc ?? "");
   const [category, setCategory] = useState<GoalCategory>(initial?.category ?? "Cá nhân");
   const [target, setTarget]     = useState(String(initial?.target ?? ""));
   const [current, setCurrent]   = useState(String(initial?.current ?? "0"));
   const [unit, setUnit]         = useState(initial?.unit ?? "");
-  const [deadline, setDeadline] = useState(initial?.deadline ?? today);
+  
+  const [deadline, setDeadline] = useState(initialDeadline);
+  const [days, setDays]         = useState(() => {
+    return String(Math.max(1, Math.round((new Date(initialDeadline).getTime() - new Date(today).getTime()) / 86400000)));
+  });
   const [err, setErr]           = useState("");
 
   useEffect(() => {
     setErr("");
-  }, [title, deadline]);
+  }, [title, deadline, days]);
+
+  function handleDaysChange(val: string) {
+    setDays(val);
+    const n = Number(val);
+    if (!isNaN(n)) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + n);
+      setDeadline(d.toISOString().slice(0, 10));
+    }
+  }
+
+  function handleDateChange(val: string) {
+    setDeadline(val);
+    const ms = new Date(val).getTime() - new Date(today).getTime();
+    setDays(String(Math.max(1, Math.round(ms / 86400000))));
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !target) return;
 
-    if (!initial?.id && deadline < today) {
-      setErr("Hạn chót không thể ở trong quá khứ");
+    if (Number(days) < 1) {
+      setErr("Thời hạn phải từ 1 ngày trở lên");
       return;
     }
 
     onSave({
-      id: initial?.id, // Có thể undefined nếu là thêm mới
+      id: initial?.id,
       title: title.trim(),
       desc: desc.trim(),
       category,
@@ -81,12 +147,15 @@ function GoalForm({
       unit: unit.trim() || "đơn vị",
       deadline,
       status: initial?.status ?? "active",
+      streak: initial?.streak ?? 0,
+      best: initial?.best ?? 0,
+      completedDates: initial?.completedDates ?? [],
     });
   }
 
   return (
     <motion.div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
     >
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={onClose} />
@@ -162,13 +231,22 @@ function GoalForm({
             </div>
           </div>
 
-          <div>
-            <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Hạn chót</label>
-            <input
-              className="input-base" type="date"
-              value={deadline} onChange={e => setDeadline(e.target.value)}
-              min={today}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Thời hạn (số ngày)</label>
+              <input
+                className="input-base" type="number" min="1"
+                value={days} onChange={e => handleDaysChange(e.target.value)} required
+              />
+            </div>
+            <div>
+              <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Đến ngày cụ thể</label>
+              <input
+                className="input-base" type="date"
+                value={deadline} onChange={e => handleDateChange(e.target.value)}
+                min={today} required
+              />
+            </div>
           </div>
 
           {err && <p className="text-xs text-destructive text-center mt-1 mb-2 font-medium">{err}</p>}
@@ -195,11 +273,14 @@ function GoalCard({
   onEdit,
   onDelete,
   onUpdateProgress,
+  onToggleToday,
 }: {
   goal: Goal;
   onEdit: (g: Goal) => void;
   onDelete: (id: string) => void;
   onUpdateProgress: (id: string, delta: number) => void;
+  onToggleToday: (id: string) => void;
+  onRecover: (id: string) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const pct = Math.min(Math.floor((goal.current / goal.target) * 100), 100);
@@ -207,8 +288,13 @@ function GoalCard({
   const isDone = goal.status === "done" || goal.current >= goal.target;
 
   const daysLeft = Math.ceil(
-    (new Date(goal.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+    (new Date(goal.deadline).getTime() - new Date(TODAY).getTime()) / 86400000
   );
+  const [y, m, d] = goal.deadline.split("-");
+  const formattedDate = `${d}/${m}/${y}`;
+
+  const completedDates = goal.completedDates || [];
+  const doneToday = completedDates.includes(TODAY);
 
   return (
     <motion.div
@@ -241,6 +327,11 @@ function GoalCard({
             {isDone && (
               <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600" style={{ fontSize: "0.7rem", fontWeight: 700 }}>
                 Hoàn thành
+              </span>
+            )}
+            {!isDone && goal.streak > 0 && (
+              <span className="flex items-center gap-0.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-600" style={{ fontSize: "0.7rem", fontWeight: 700 }}>
+                <Flame size={10} /> {goal.streak}
               </span>
             )}
           </div>
@@ -294,7 +385,7 @@ function GoalCard({
           </span>
           <span className="flex items-center gap-1 text-muted-foreground" style={{ fontSize: "0.775rem" }}>
             <Calendar size={11} />
-            {isDone ? "Đã xong" : daysLeft > 0 ? `${daysLeft} ngày còn lại` : "Đã hết hạn"}
+            {isDone ? "Đã xong" : daysLeft > 0 ? `${daysLeft} ngày (đến ${formattedDate})` : `Đã hết hạn (${formattedDate})`}
           </span>
         </div>
         <div className="h-1.5 bg-muted rounded-full overflow-hidden">
@@ -310,28 +401,56 @@ function GoalCard({
 
       {/* Quick update buttons */}
       {!isDone && (
-        <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-          <span className="text-muted-foreground" style={{ fontSize: "0.72rem", fontWeight: 500 }}>Cập nhật:</span>
-          {[1, 5, 10].map((delta) => (
+        <div className="flex items-center justify-between mt-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-muted-foreground" style={{ fontSize: "0.72rem", fontWeight: 500 }}>Cập nhật:</span>
+            {[1, 5, 10].map((delta) => (
+              <button
+                key={delta}
+                onClick={() => onUpdateProgress(goal.id, delta)}
+                className="px-2 py-1 rounded-lg bg-muted hover:bg-secondary hover:text-secondary-foreground transition-colors"
+                style={{ fontSize: "0.72rem", fontWeight: 600 }}
+              >
+                +{delta}
+              </button>
+            ))}
+          </div>
+
+          {/* Check-in logic */}
+          <div className="flex items-center gap-1.5 ml-auto">
             <button
-              key={delta}
-              onClick={() => onUpdateProgress(goal.id, delta)}
-              className="px-2 py-1 rounded-lg bg-muted hover:bg-secondary hover:text-secondary-foreground transition-colors"
-              style={{ fontSize: "0.72rem", fontWeight: 600 }}
+              onClick={() => onRecover(goal.id)}
+              className="w-8 h-8 rounded-full flex items-center justify-center text-primary hover:bg-primary/10 transition-colors flex-shrink-0"
+              title="Cứu chuỗi"
             >
-              +{delta}
+              <ShieldPlus size={16} />
             </button>
-          ))}
+            <button
+              onClick={() => onToggleToday(goal.id)}
+              className="w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 active:scale-95 flex-shrink-0"
+              style={{
+                background: doneToday ? color : "transparent",
+                color: doneToday ? "#fff" : "var(--muted-foreground)",
+                border: doneToday ? "none" : "2px solid var(--border)",
+              }}
+            >
+              {doneToday ? <CheckCircle2 size={18} /> : <Circle size={18} />}
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Streaks Dots */}
+      <WeekDots dates={completedDates} color={color} />
     </motion.div>
   );
 }
 
 /* ── Main page ── */
 export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
-  const { goals, setGoals }     = useAppStore();
+  const { goals, setGoals, habits, settings }     = useAppStore();
   const [formOpen, setFormOpen] = useState(false);
+  const [recoveryItemId, setRecoveryItemId] = useState<string | null>(null);
   const [editing, setEditing]   = useState<Goal | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -354,7 +473,7 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
   const active  = goals.filter(g => g.status !== "done" && (g.current / g.target) < 1);
   const done    = goals.filter(g => g.status === "done" || g.current >= g.target);
-  const streak  = 7; // mock streak
+  const bestOverallStreak = goals.reduce((max, g) => Math.max(max, g.streak || 0), 0);
 
   const visible = goals.filter(g => {
     const statusOk =
@@ -396,6 +515,23 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
     });
   }
 
+  async function toggleToday(id: string) {
+    if (!uid) return;
+    const g = goals.find(x => x.id === id);
+    if (!g) return;
+    const dates = g.completedDates || [];
+    const isDone = dates.includes(TODAY);
+    const newDates = isDone
+      ? dates.filter(d => d !== TODAY)
+      : [...dates, TODAY];
+    const newStreak = isDone ? Math.max((g.streak || 0) - 1, 0) : (g.streak || 0) + 1;
+    await updateGoal(uid, id, { 
+      completedDates: newDates, 
+      streak: newStreak, 
+      best: Math.max(g.best || 0, newStreak) 
+    });
+  }
+
   function openAdd()           { setEditing(null); openModal(); }
   function openEdit(g: Goal)   { setEditing(g);    openModal(); }
 
@@ -405,12 +541,19 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Stats header ── */}
         <div className="shrink-0 px-4 lg:px-6 pt-4 pb-3 space-y-4">
-          <LunarCountdownBadge />
+          <div className="flex items-center justify-between">
+            <LunarCountdownBadge />
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-xl font-medium text-sm">
+              <ShieldPlus size={16} />
+              Cứu chuỗi: {getRecoveryInfo(habits, goals, settings).remaining}/{getRecoveryInfo(habits, goals, settings).maxRecoveries}
+            </div>
+          </div>
+
           <div className="grid grid-cols-3 gap-2">
             {[
               { icon: Target, label: "Đang làm",    value: active.length, color: "var(--primary)", bg: "var(--secondary)" },
               { icon: Trophy, label: "Hoàn thành",  value: done.length,   color: "#10B981",        bg: "#ECFDF5" },
-              { icon: Flame,  label: "Streak",       value: `${streak}🔥`, color: "#F59E0B",        bg: "#FFFBEB" },
+              { icon: Flame,  label: "Streak dài nhất", value: `${bestOverallStreak}🔥`, color: "#F59E0B", bg: "#FFFBEB" },
             ].map(({ icon: Icon, label, value, color, bg }) => (
               <div key={label} className="bg-card border border-border rounded-xl p-2.5 flex flex-col items-center gap-1.5 text-center">
                 <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: bg }}>
@@ -447,7 +590,6 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
           )}
 
           {/* Filters */}
-          {/* Status filter */}
           <div className="flex gap-1.5">
             {(["all", "active", "done"] as const).map((f) => (
               <button
@@ -464,7 +606,6 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
               </button>
             ))}
           </div>
-          {/* Category filter — scroll ngang */}
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-4 lg:-mx-6 px-4 lg:px-6">
             <button
               onClick={() => setCatFilter("all")}
@@ -528,6 +669,8 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
                         onEdit={openEdit}
                         onDelete={deleteGoal}
                         onUpdateProgress={updateProgress}
+                        onToggleToday={toggleToday}
+                        onRecover={setRecoveryItemId}
                       />
                     ))}
                   </AnimatePresence>
@@ -541,7 +684,7 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
       {/* FAB */}
       <button
         onClick={openAdd}
-        className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-40 w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+        className="fixed bottom-20 right-[72px] lg:bottom-6 lg:right-6 z-40 w-11 h-11 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
       >
         <Plus size={20} />
       </button>
@@ -554,6 +697,12 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
             onSave={saveGoal}
             onClose={() => { closeModal(); setEditing(null); }}
           />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {recoveryItemId && (
+          <StreakRecoveryModal onClose={() => setRecoveryItemId(null)} filterType="goal" filterItemId={recoveryItemId} />
         )}
       </AnimatePresence>
     </>

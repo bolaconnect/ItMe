@@ -40,8 +40,14 @@ export async function requestFCMToken(uid: string): Promise<string | null> {
     return null;
   }
 
-  if (!VAPID_KEY) {
-    console.error("[FCM] Thiếu cấu hình VITE_FIREBASE_VAPID_KEY trong file .env!");
+  if (!VAPID_KEY || VAPID_KEY.trim() === "" || VAPID_KEY.includes("YOUR_FIREBASE_VAPID_KEY_HERE")) {
+    console.warn(
+      "[FCM] VITE_FIREBASE_VAPID_KEY chưa được cấu hình hợp lệ trong file .env.local!\n" +
+      "Để kích hoạt thông báo đẩy:\n" +
+      "1. Truy cập Firebase Console > Cài đặt dự án > Cloud Messaging.\n" +
+      "2. Tại mục 'Web push certificates', tạo một cặp khóa (Key pair) và sao chép nó.\n" +
+      "3. Thay thế giá trị của VITE_FIREBASE_VAPID_KEY trong file .env.local bằng khóa này."
+    );
     return null;
   }
 
@@ -53,9 +59,47 @@ export async function requestFCMToken(uid: string): Promise<string | null> {
       return null;
     }
 
-    // 2. Lấy FCM token từ Firebase
+    // 2. Đăng ký/lấy Service Worker tùy chỉnh để hỗ trợ đường dẫn base (Vite /ItMe/)
+    const baseUrl = import.meta.env.BASE_URL || '/';
+    const swUrl = `${baseUrl}firebase-messaging-sw.js`;
+    const swScope = `${baseUrl}firebase-cloud-messaging-push-scope`;
+    let registration: ServiceWorkerRegistration | undefined;
+    
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        
+        // 2.1. Thử tìm xem có PWA Service Worker (thường tên là sw.js hoặc chứa registerSW.js) đã đăng ký chưa.
+        // PWA Service Worker trong production đã import firebase-messaging-sw.js.
+        registration = registrations.find(r => {
+          const scriptURL = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || '';
+          return scriptURL.includes('sw.js') || scriptURL.includes('registerSW.js');
+        });
+        
+        // 2.2. Nếu không có PWA SW, hoặc đang chạy ở dev (không kích hoạt PWA), thử tìm SW riêng cho FCM
+        if (!registration) {
+          registration = registrations.find(r => {
+            const scriptURL = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || '';
+            return scriptURL.includes('firebase-messaging-sw.js');
+          });
+        }
+        
+        // 2.3. Nếu vẫn chưa có registration phù hợp, tiến hành đăng ký mới với scope tùy chỉnh dưới base path
+        if (!registration) {
+          console.log("[FCM] Đăng ký Service Worker tùy chỉnh cho FCM:", swUrl, "với scope:", swScope);
+          registration = await navigator.serviceWorker.register(swUrl, {
+            scope: swScope
+          });
+        }
+      } catch (swErr) {
+        console.warn("[FCM] Lỗi khi xử lý Service Worker:", swErr);
+      }
+    }
+
+    // 3. Lấy FCM token từ Firebase
     const token = await getToken(messaging, { 
-      vapidKey: VAPID_KEY 
+      vapidKey: VAPID_KEY,
+      ...(registration ? { serviceWorkerRegistration: registration } : {})
     });
 
     if (!token) {
@@ -77,8 +121,14 @@ export async function requestFCMToken(uid: string): Promise<string | null> {
 
     console.log("[FCM] Đăng ký thiết bị thành công. Token ID:", tokenId);
     return token;
-  } catch (err) {
-    console.error("[FCM] Lỗi khi đăng ký FCM Token:", err);
+  } catch (err: any) {
+    if (err?.message?.includes("applicationServerKey") || err?.message?.includes("VAPID") || err?.name === "InvalidAccessError") {
+      console.error(
+        "[FCM] Đăng ký thất bại do VAPID Key không hợp lệ. Hãy kiểm tra và đảm bảo khóa VITE_FIREBASE_VAPID_KEY trong file .env.local trùng khớp chính xác với khóa từ Firebase Console."
+      );
+    } else {
+      console.error("[FCM] Lỗi khi đăng ký FCM Token:", err);
+    }
     return null;
   }
 }

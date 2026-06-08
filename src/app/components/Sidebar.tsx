@@ -2,9 +2,11 @@ import { useState } from "react";
 import {
   LayoutDashboard, CheckSquare, Target, Repeat2,
   Wallet, StickyNote, ChevronLeft, ChevronRight,
-  Sparkles, User, Settings, Calendar, CalendarDays, KeyRound
+  Sparkles, User, Settings, CalendarDays, KeyRound, LogOut
 } from "lucide-react";
 import type { Page } from "./MainApp";
+import { auth } from "../../lib/firebase";
+import { signOut } from "firebase/auth";
 
 const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "dashboard", label: "Tổng quan",  icon: LayoutDashboard },
@@ -14,7 +16,6 @@ const navItems: { id: Page; label: string; icon: React.ElementType }[] = [
   { id: "finance",   label: "Tài chính",  icon: Wallet },
   { id: "notes",     label: "Ghi chú",    icon: StickyNote },
   { id: "passwords", label: "Mật khẩu",   icon: KeyRound },
-  { id: "calendar",  label: "Lịch",       icon: Calendar },
   { id: "events",    label: "Sự kiện",    icon: CalendarDays },
   { id: "profile",   label: "Bản thân",   icon: User },
 ];
@@ -70,13 +71,14 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
       {/* Bottom */}
       <div className={`border-t border-border py-4 px-2.5 space-y-0.5 overflow-hidden`}>
         <button
-          className={`w-full flex items-center gap-3 rounded-xl py-2.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-all duration-150 ${
+          onClick={() => signOut(auth)}
+          className={`w-full flex items-center gap-3 rounded-xl py-2.5 text-destructive hover:bg-destructive/10 transition-all duration-150 ${
             collapsed ? "px-0 justify-center" : "px-3"
           }`}
-          title={collapsed ? "Cài đặt" : undefined}
+          title={collapsed ? "Đăng xuất" : undefined}
         >
-          <Settings size={18} className="shrink-0" />
-          {!collapsed && <span className="text-sm">Cài đặt</span>}
+          <LogOut size={18} className="shrink-0" />
+          {!collapsed && <span className="text-sm">Đăng xuất</span>}
         </button>
 
         <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${collapsed ? "px-0 justify-center" : ""}`}>

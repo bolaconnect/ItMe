@@ -92,6 +92,10 @@ export function EventForm({
   const [frequency, setFreq]    = useState<Frequency>("daily");
   const [err, setErr]           = useState("");
 
+  const now = new Date();
+  const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const currentHHmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+
   // Xoá lỗi khi người dùng thay đổi dữ liệu đầu vào
   useEffect(() => {
     setErr("");
@@ -199,16 +203,28 @@ export function EventForm({
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-3 sm:col-span-1">
                     <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Ngày</label>
-                    <input className="input-base" type="date" value={date} onChange={e => setDate(e.target.value)} min={TODAY} />
+                    <input className="input-base" type="date" value={date} onChange={e => setDate(e.target.value)} min={localToday} />
                   </div>
                   <div>
                     <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{type === "task" ? "Giờ hạn" : "Bắt đầu"}</label>
-                    <input className="input-base" type="time" value={time} onChange={e => setTime(e.target.value)} />
+                    <input 
+                      className="input-base" 
+                      type="time" 
+                      value={time} 
+                      onChange={e => setTime(e.target.value)} 
+                      min={date === localToday ? currentHHmm : undefined}
+                    />
                   </div>
                   {type === "event" && (
                     <div>
                       <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Kết thúc</label>
-                      <input className="input-base" type="time" value={endTime} onChange={e => setEndTime(e.target.value)} />
+                      <input 
+                        className="input-base" 
+                        type="time" 
+                        value={endTime} 
+                        onChange={e => setEndTime(e.target.value)} 
+                        min={date === localToday ? (time || currentHHmm) : (time || undefined)}
+                      />
                     </div>
                   )}
                 </div>
@@ -461,6 +477,11 @@ export function EventDetailModal({ ev, onClose, onDelete }: { ev: CalEvent; onCl
               <Clock size={14} className="flex-shrink-0" />
               <span>
                 {new Date(ev.date).toLocaleDateString("vi-VN", { weekday: "long", day: "numeric", month: "long" })}
+                {(() => {
+                  const d = new Date(ev.date);
+                  const lunar = solarToLunar(d.getDate(), d.getMonth() + 1, d.getFullYear());
+                  return <span className="opacity-80"> (ÂL: {lunar.day}/{lunar.month})</span>;
+                })()}
                 {ev.time && <><br /><span style={{ fontSize: "0.8rem" }}>{ev.time}{ev.endTime ? ` – ${ev.endTime}` : ""}</span></>}
               </span>
             </div>
@@ -496,7 +517,7 @@ export function EventDetailModal({ ev, onClose, onDelete }: { ev: CalEvent; onCl
 }
 
 /* ── Main page ── */
-export function CalendarPage({ onBack }: { onBack?: () => void } = {}) {
+export function CalendarPage({ onBack, hideFab = false }: { onBack?: () => void; hideFab?: boolean } = {}) {
   const now = new Date();
   const [year, setYear]         = useState(now.getFullYear());
   const [month, setMonth]       = useState(now.getMonth());
@@ -646,7 +667,7 @@ export function CalendarPage({ onBack }: { onBack?: () => void } = {}) {
                   const d = new Date(dateStr); const lunar = solarToLunar(d.getDate(), d.getMonth() + 1, d.getFullYear());
                   const special = getLunarSpecialDay(lunar.day, lunar.month);
                   return (
-                    <button key={dateStr} onClick={() => { setSelected(dateStr); setDayModal(dateStr); }} className={`py-2 flex flex-col items-center gap-0.5 transition-colors ${dateStr === selected ? "bg-secondary/60" : "hover:bg-muted/40"}`}>
+                    <button key={dateStr} onClick={() => { setSelected(dateStr); }} className={`py-2 flex flex-col items-center gap-0.5 transition-colors ${dateStr === selected ? "bg-secondary/60" : "hover:bg-muted/40"}`}>
                       <span className={`${d.getDay() === 0 ? "text-red-500" : "text-muted-foreground"}`} style={{ fontSize: "0.72rem", fontWeight: 600 }}>{VN_DAYS[d.getDay()]}</span>
                       <span className={`w-8 h-8 flex items-center justify-center rounded-full ${dateStr === TODAY ? "bg-primary text-primary-foreground" : d.getDay() === 0 ? "text-red-500" : "text-foreground"}`} style={{ fontWeight: dateStr === TODAY ? 700 : 500, fontSize: "0.9375rem" }}>{d.getDate()}</span>
                       <span className={`${lunar.day===1||lunar.day===15?"font-bold":""} ${lunar.day===1?"text-red-500":lunar.day===15?"text-amber-600":"text-muted-foreground"}`} style={{ fontSize: "0.65rem" }}>{formatLunarShort(lunar.day, lunar.month)}</span>
@@ -720,9 +741,11 @@ export function CalendarPage({ onBack }: { onBack?: () => void } = {}) {
         })()}
       </AnimatePresence>
 
-      <button onClick={() => setFormOpen(true)} className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-[45] w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
-        <Plus size={20} />
-      </button>
+      {!hideFab && (
+        <button onClick={() => setFormOpen(true)} className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-[45] w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:opacity-90 active:scale-95 transition-all">
+          <Plus size={20} />
+        </button>
+      )}
 
       <AnimatePresence>
         {formOpen && <EventForm defaultDate={selected}

@@ -19,6 +19,9 @@ export interface Goal {
   unit:      string;
   deadline:  string;      // "YYYY-MM-DD"
   status:    GoalStatus;
+  streak:    number;
+  best:      number;
+  completedDates: string[]; // ISO date strings
   createdAt?: Timestamp;
 }
 

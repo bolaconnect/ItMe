@@ -333,7 +333,7 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
       {/* ── FAB ── */}
       <button
         onClick={openAdd}
-        className="fixed bottom-20 right-5 lg:bottom-6 lg:right-6 z-40 w-12 h-12 rounded-xl bg-primary text-primary-foreground shadow-md flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+        className="fixed bottom-20 right-[72px] lg:bottom-6 lg:right-6 z-40 w-11 h-11 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all"
       >
         <Plus size={20} />
       </button>

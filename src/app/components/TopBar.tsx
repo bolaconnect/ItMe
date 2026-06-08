@@ -184,16 +184,6 @@ export function TopBar({ activePage, onNavigate }: { activePage: Page; onNavigat
             )}
           </AnimatePresence>
         </div>
-
-        {/* ── Avatar ── */}
-        <button onClick={() => onNavigate("profile")}
-          className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${
-            activePage === "profile"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:bg-primary/10 hover:text-primary"
-          }`}>
-          <User size={15} />
-        </button>
       </div>
     </header>
   );

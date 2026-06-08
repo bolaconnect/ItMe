@@ -276,7 +276,7 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
             </div>
             <button
               onClick={addNote}
-              className="w-9 h-9 rounded-xl bg-primary text-primary-foreground flex items-center justify-center hover:opacity-90 transition-opacity flex-shrink-0"
+              className="hidden md:flex w-9 h-9 rounded-xl bg-primary text-primary-foreground items-center justify-center hover:opacity-90 transition-opacity flex-shrink-0"
             >
               <Plus size={18} />
             </button>
@@ -497,6 +497,16 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
           </div>
         )}
       </div>
+
+      {/* FAB */}
+      <button
+        onClick={addNote}
+        className={`fixed bottom-20 right-[72px] lg:bottom-6 lg:right-6 z-40 w-11 h-11 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/20 flex items-center justify-center hover:scale-105 active:scale-95 transition-all ${
+          showMobile ? "hidden md:flex" : "flex"
+        }`}
+      >
+        <Plus size={20} />
+      </button>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Trash2 } from "lucide-react";
 import { Sheet, FormField, FormInput, FormSelect, FormActions } from "../Sheet";
 import type {
@@ -9,6 +9,9 @@ import {
   INCOME_CATEGORIES, EXPENSE_CATEGORIES, ASSET_GROUPS,
   INVEST_TYPES, GOAL_ICONS, GOAL_COLORS, nextId,
 } from "./financeStore";
+
+const now = new Date();
+const CURRENT_MONTH = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
 /* ═══════════════════════════════════════════════
    TRANSACTION (Income / Expense)
@@ -42,13 +45,14 @@ export function TransactionSheet({ type, open, editing, onClose, onSave, onDelet
   const [error,    setError]    = useState("");
 
   /* reset when sheet reopens */
-  useState(() => {
+  useEffect(() => {
     if (open) {
       setCategory(editing?.category ?? cats[0]);
       setAmount(editing ? String(editing.amount) : "");
       setError("");
     }
-  });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -259,18 +263,7 @@ export function LiabilitySheet({ open, editing, onClose, onSave, onDelete, items
     onClose();
   }
 
-  const AmountField = ({ label, value, onChange, placeholder }: {
-    label: string; value: string; onChange: (v: string) => void; placeholder: string;
-  }) => (
-    <FormField label={label}>
-      <FormInput
-        type="text" inputMode="numeric" placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g,""))}
-      />
-      {value && <p className="text-xs text-muted-foreground mt-1">= {parseInt(value||"0").toLocaleString("vi-VN")}đ</p>}
-    </FormField>
-  );
+  /* AmountField moved outside component – see bottom of file */
 
   return (
     <Sheet open={open} onClose={onClose} title={editing ? "Sửa khoản nợ" : "Thêm khoản nợ"}>
@@ -284,7 +277,7 @@ export function LiabilitySheet({ open, editing, onClose, onSave, onDelete, items
         <AmountField label="Trả hàng tháng (đ)" value={monthly}   onChange={setMonthly}   placeholder="VD: 1500000" />
 
         <FormField label="Hạn trả (YYYY-MM)">
-          <FormInput type="month" value={due} onChange={(e) => setDue(e.target.value)} />
+          <FormInput type="month" value={due} onChange={(e) => setDue(e.target.value)} min={CURRENT_MONTH} />
         </FormField>
 
         {editing && onDelete && (
@@ -438,7 +431,7 @@ export function InsuranceSheet({ open, editing, onClose, onSave, onDelete, items
         </FormField>
 
         <FormField label="Ngày gia hạn">
-          <FormInput type="month" value={renewal} onChange={(e) => setRenewal(e.target.value)} />
+          <FormInput type="month" value={renewal} onChange={(e) => setRenewal(e.target.value)} min={CURRENT_MONTH} />
         </FormField>
 
         {editing && onDelete && (
@@ -531,7 +524,7 @@ export function GoalSheet({ open, editing, onClose, onSave, onDelete, items }: G
         </FormField>
 
         <FormField label="Hạn chót (YYYY-MM)">
-          <FormInput type="month" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          <FormInput type="month" value={deadline} onChange={(e) => setDeadline(e.target.value)} min={CURRENT_MONTH} />
         </FormField>
 
         {/* Color picker */}
@@ -560,3 +553,33 @@ export function GoalSheet({ open, editing, onClose, onSave, onDelete, items }: G
     </Sheet>
   );
 }
+
+/* ═══════════════════════════════════════════════
+   HELPERS & COMMON FIELDS
+   ═══════════════════════════════════════════════ */
+interface AmountFieldProps {
+  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
+}
+
+function AmountField({ label, value, onChange, placeholder }: AmountFieldProps) {
+  return (
+    <FormField label={label}>
+      <FormInput
+        type="text"
+        inputMode="numeric"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, ""))}
+      />
+      {value && (
+        <p className="text-xs text-muted-foreground mt-1">
+          = {parseInt(value || "0").toLocaleString("vi-VN")}đ
+        </p>
+      )}
+    </FormField>
+  );
+}
+

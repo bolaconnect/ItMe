@@ -27,7 +27,7 @@ export function Sheet({ open, onClose, title, children }: SheetProps) {
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end lg:items-center justify-center">
+        <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center">
           {/* Backdrop */}
           <motion.div
             className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"

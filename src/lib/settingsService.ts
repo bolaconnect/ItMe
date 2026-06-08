@@ -34,6 +34,12 @@ export interface UserSettingsData {
   preferences?: Setting[];
   passwordPinHash?: string;
   resetPinPending?: boolean;
+  streakRecovery?: {
+    month: string;
+    used: number;
+  };
+  bottomNavTabs?: string[];
+  financeSectionOrder?: string[];
 }
 
 function userDocRef(uid: string) {
