@@ -153,7 +153,7 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
   /* derived stats */
   const total    = tasks.length;
   const done     = tasks.filter((t) => t.done).length;
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = new Date().toLocaleDateString("en-CA");
   const overdue  = tasks.filter((t) => !t.done && t.dueDate && t.dueDate < todayStr).length;
   const todayN   = tasks.filter((t) => !t.done && t.dueDate === todayStr).length;
   const pct      = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -353,7 +353,7 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
 /* ── Task item ── */
 function TaskItem({ task, onToggle, onEdit }: { task: Task; onToggle: () => void; onEdit: () => void }) {
-  const isOverdue = !task.done && task.dueDate && task.dueDate < new Date().toISOString().slice(0, 10);
+  const isOverdue = !task.done && task.dueDate && task.dueDate < new Date().toLocaleDateString("en-CA");
 
   return (
     <motion.li
@@ -423,7 +423,7 @@ function Chip({ label, color }: { label: string; color: string }) {
 }
 
 function formatDue(date: string, time: string) {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = new Date().toLocaleDateString("en-CA");
   const tomorrowStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
   let label = date === todayStr ? "Hôm nay" : date === tomorrowStr ? "Ngày mai" : date;
   if (time) label += ` ${time}`;

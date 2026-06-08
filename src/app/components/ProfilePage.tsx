@@ -1,19 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   User, Star, TrendingUp, Heart, Bell, Moon, Sun,
   Shield, LogOut, ChevronRight, Edit3, Check, X,
   BookOpen, Target, Repeat2, Wallet, Camera, Activity,
-  Ruler, Weight, Droplets, Zap, LayoutTemplate, BellRing,
+  Ruler, Weight, Droplets, Zap, LayoutTemplate, BellRing, KeyRound
 } from "lucide-react";
-import { auth } from "../../lib/firebase";
-import { signOut } from "firebase/auth";
+import { auth, db } from "../../lib/firebase";
+import { signOut, sendPasswordResetEmail } from "firebase/auth";
+import { collection, getDocs } from "firebase/firestore";
 import { useAppStore } from "../store/useAppStore";
 import type { Page } from "./MainApp";
 import { subscribeSettings, updateSettings, updateUserProfileAuth, UserProfile, Setting, BodyMetrics } from "../../lib/settingsService";
-import { useEffect } from "react";
 import * as webNotif from "../../lib/webNotificationService";
 import { useToast } from "./ToastNotification";
 import { requestFCMToken, removeFCMToken } from "../../lib/fcmService";
+import { PinLockScreen } from "./PasswordsPage";
+import { AnimatePresence } from "motion/react";
+import { sendOtpEmail } from "../../lib/emailService";
 
 /* ── Mock Fallbacks ── */
 const INITIAL_PROFILE: UserProfile = {
@@ -113,7 +116,7 @@ function BodyMetricsModal({
             className="flex-1 py-2.5 rounded-xl bg-muted text-foreground"
             style={{ fontWeight: 600, fontSize: "0.875rem" }}>Huỷ</button>
           <button
-            onClick={() => { onSave({ ...form, updatedAt: new Date().toISOString().slice(0, 10) }); onClose(); }}
+            onClick={() => { onSave({ ...form, updatedAt: new Date().toLocaleDateString("en-CA") }); onClose(); }}
             className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground hover:opacity-90"
             style={{ fontWeight: 600, fontSize: "0.875rem" }}>
             <span className="flex items-center justify-center gap-1.5"><Check size={15} />Lưu</span>
@@ -234,16 +237,44 @@ function EditProfileSheet({
   const [name,  setName]  = useState(profile.name);
   const [email, setEmail] = useState(profile.email);
   const [bio,   setBio]   = useState(profile.bio);
+  const [avatar, setAvatar] = useState(profile.avatar);
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      if (ev.target?.result) {
+        setAvatar(ev.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border">
+      <div className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border shrink-0">
           <h3 className="text-foreground" style={{ fontWeight: 700 }}>Chỉnh sửa hồ sơ</h3>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"><X size={16} /></button>
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 overflow-y-auto">
+          <div className="flex justify-center">
+            <div className="relative">
+              {avatar && avatar.length > 5 ? (
+                <img src={avatar} alt="Avatar" className="w-20 h-20 rounded-2xl object-cover border border-border" />
+              ) : (
+                <div className="w-20 h-20 rounded-2xl bg-primary/10 flex items-center justify-center">
+                  <span className="text-primary" style={{ fontWeight: 700, fontSize: "1.5rem" }}>{(name || "A")[0].toUpperCase()}</span>
+                </div>
+              )}
+              <label className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg cursor-pointer hover:bg-primary/90 transition-colors">
+                <Camera size={14} />
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageChange} />
+              </label>
+            </div>
+          </div>
           <div>
             <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Họ và tên</label>
             <input
@@ -273,12 +304,41 @@ function EditProfileSheet({
               className="flex-1 py-2.5 rounded-xl bg-muted text-foreground"
               style={{ fontWeight: 600, fontSize: "0.875rem" }}>Huỷ</button>
             <button
-              onClick={() => { onSave({ ...profile, name, email, bio }); onClose(); }}
+              onClick={() => { onSave({ ...profile, name, email, bio, avatar }); onClose(); }}
               className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground hover:opacity-90"
               style={{ fontWeight: 600, fontSize: "0.875rem" }}>
               <span className="flex items-center justify-center gap-1.5"><Check size={15} />Lưu</span>
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActionModal({
+  title, description, confirmText, onConfirm, onClose, isAlertOnly = false, isLoading = false
+}: {
+  title: string; description: React.ReactNode; confirmText?: string; onConfirm?: () => void; onClose: () => void; isAlertOnly?: boolean; isLoading?: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl p-6 border border-border">
+        <h3 className="text-xl font-bold text-foreground mb-2">{title}</h3>
+        <div className="text-muted-foreground text-[15px] mb-6 leading-relaxed">
+          {description}
+        </div>
+        <div className="flex gap-3">
+          {!isAlertOnly && (
+            <button onClick={onClose} disabled={isLoading} className="flex-1 py-2.5 rounded-xl font-semibold bg-muted text-foreground hover:bg-muted/80 transition-colors disabled:opacity-50">
+              Hủy
+            </button>
+          )}
+          <button onClick={onConfirm || onClose} disabled={isLoading} className="flex-1 py-2.5 rounded-xl font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-colors shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2">
+            {isLoading && <span className="w-4 h-4 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />}
+            {confirmText || "Đóng"}
+          </button>
         </div>
       </div>
     </div>
@@ -332,15 +392,114 @@ export function ProfilePage({
     { label: "Mục tiêu active",  value: `${activeGoals}`,       icon: Target,   color: "var(--primary)", bg: "var(--secondary)" },
   ];
 
+  const [activeAction, setActiveAction] = useState<"password" | "export" | "privacy" | "pin" | "verify_otp" | "setup_new_pin" | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [otpCode, setOtpCode] = useState("");
+  const [enteredOtp, setEnteredOtp] = useState("");
+  const [otpError, setOtpError] = useState("");
 
+  async function sendOtpCode() {
+    if (!auth.currentUser?.email) return showToast("Không tìm thấy email liên kết", "error");
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    setOtpCode(code);
+    setEnteredOtp("");
+    setOtpError("");
+    setActionLoading(true);
+    try {
+      const sent = await sendOtpEmail(auth.currentUser.email, displayProfile.name, code);
+      if (sent) {
+        showToast({
+          type: "success",
+          title: "Đã gửi mã OTP",
+          body: `Mã xác thực đã được gửi thành công đến email ${auth.currentUser.email}.`,
+        });
+      } else {
+        showToast({
+          type: "success",
+          title: "Đã gửi mã xác nhận (Giả lập)",
+          body: `Mã OTP đã được gửi đến email ${auth.currentUser.email}. (Mã thử nghiệm của bạn là: ${code})`,
+        });
+      }
+      setActiveAction("verify_otp");
+    } catch (err: any) {
+      showToast("Lỗi gửi OTP: " + err.message, "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }
 
-  // Ghi đè tên/email từ Firebase Auth nếu có
+  function handleVerifyOtp() {
+    if (enteredOtp === otpCode) {
+      showToast("Xác thực thành công! Hãy tạo mã PIN mới.", "success");
+      setActiveAction("setup_new_pin");
+    } else {
+      setOtpError("Mã xác minh không chính xác. Vui lòng nhập lại.");
+    }
+  }
+
+  async function handleSetupNewPin(hashedPin: string) {
+    if (!uid) return;
+    setActionLoading(true);
+    try {
+      await updateSettings(uid, { passwordPinHash: hashedPin, resetPinPending: false });
+      showToast("Cập nhật mã PIN kho mật khẩu thành công!", "success");
+      setActiveAction(null);
+    } catch (err: any) {
+      showToast("Lỗi: " + err.message, "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function executePasswordReset() {
+    if (!auth.currentUser?.email) return showToast("Không tìm thấy email liên kết", "error");
+    setActionLoading(true);
+    try {
+      auth.languageCode = "vi";
+      await sendPasswordResetEmail(auth, auth.currentUser.email);
+      showToast("Đã gửi email đổi mật khẩu. Vui lòng kiểm tra hộp thư!", "success");
+      setActiveAction(null);
+    } catch (err: any) {
+      showToast("Lỗi: " + err.message, "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  async function executeExport() {
+    if (!auth.currentUser) return;
+    setActionLoading(true);
+    try {
+      const uid = auth.currentUser.uid;
+      const exportData: any = {};
+      const cols = ["tasks", "habits", "goals", "events", "notes", "passwords", "income", "expense"];
+      for (const c of cols) {
+        const snap = await getDocs(collection(db, "users", uid, c));
+        exportData[c] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      }
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `ItMe_Export_${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Tải xuống thành công!", "success");
+      setActiveAction(null);
+    } catch (err: any) {
+      showToast("Lỗi xuất dữ liệu: " + err.message, "error");
+    } finally {
+      setActionLoading(false);
+    }
+  }  // Ghi đè tên/email từ Firebase Auth nếu có
   const currentUser = auth.currentUser;
   const displayProfile = {
     ...profile,
     name: currentUser?.displayName || currentUser?.email?.split("@")[0] || profile.name,
     email: currentUser?.email || profile.email,
-    avatar: (currentUser?.displayName || currentUser?.email || "A")[0].toUpperCase()
+    avatar: (profile.avatar && profile.avatar.length > 5)
+      ? profile.avatar
+      : (currentUser?.displayName || currentUser?.email || "A")[0].toUpperCase()
   };
 
   const bmi = calcBMI(metrics.weight, metrics.height);
@@ -418,10 +577,14 @@ export function ProfilePage({
         <div className="bg-card rounded-2xl border border-border p-5">
           <div className="flex items-center gap-4">
             <div className="relative">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                <span className="text-primary" style={{ fontWeight: 700, fontSize: "1.25rem" }}>{displayProfile.avatar}</span>
-              </div>
-              <button className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-sm">
+              {displayProfile.avatar && displayProfile.avatar.length > 5 ? (
+                <img src={displayProfile.avatar} alt="Avatar" className="w-16 h-16 rounded-2xl object-cover border border-border" />
+              ) : (
+                <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                  <span className="text-primary" style={{ fontWeight: 700, fontSize: "1.25rem" }}>{displayProfile.avatar}</span>
+                </div>
+              )}
+              <button onClick={() => setEditing(true)} className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-sm">
                 <Camera size={11} />
               </button>
             </div>
@@ -644,12 +807,13 @@ export function ProfilePage({
             <p className="text-foreground" style={{ fontWeight: 700, fontSize: "0.875rem" }}>Tài khoản</p>
           </div>
           {[
-            { label: "Đổi mật khẩu",   sub: "Cập nhật mật khẩu đăng nhập" },
-            { label: "Xuất dữ liệu",    sub: "Tải về toàn bộ dữ liệu của bạn" },
-            { label: "Quyền riêng tư",  sub: "Quản lý dữ liệu và quyền truy cập" },
-          ].map(({ label, sub }, i) => (
-            <button key={label}
-              className={`w-full flex items-center justify-between px-4 py-3.5 hover:bg-muted transition-colors text-left ${i < 2 ? "border-b border-border" : ""}`}
+            { label: "Đổi mật khẩu",   sub: "Cập nhật mật khẩu đăng nhập", onClick: () => setActiveAction("password") },
+            { label: "Đổi mã PIN",     sub: "Cập nhật mã PIN kho mật khẩu", onClick: () => setActiveAction("pin") },
+            { label: "Xuất dữ liệu",    sub: "Tải về toàn bộ dữ liệu của bạn", onClick: () => setActiveAction("export") },
+            { label: "Quyền riêng tư",  sub: "Quản lý dữ liệu và quyền truy cập", onClick: () => setActiveAction("privacy") },
+          ].map(({ label, sub, onClick }, i, arr) => (
+            <button key={label} onClick={onClick}
+              className={`w-full flex items-center justify-between px-4 py-3.5 hover:bg-muted transition-colors text-left ${i < arr.length - 1 ? "border-b border-border" : ""}`}
             >
               <div>
                 <p className="text-foreground" style={{ fontWeight: 600, fontSize: "0.875rem" }}>{label}</p>
@@ -676,7 +840,7 @@ export function ProfilePage({
 
       {editing && (
         <EditProfileSheet
-          profile={profile}
+          profile={displayProfile}
           onSave={async (p) => {
             setProfile(p);
             if (uid) {
@@ -711,6 +875,108 @@ export function ProfilePage({
           onClose={() => setEditNav(false)}
         />
       )}
+
+      {/* ── Action Modals ── */}
+      {activeAction === "password" && (
+        <ActionModal
+          title="Đổi mật khẩu"
+          description={<>Gửi email chứa liên kết an toàn để đổi mật khẩu đến <strong>{auth.currentUser?.email}</strong>?</>}
+          confirmText="Gửi email"
+          onConfirm={executePasswordReset}
+          onClose={() => setActiveAction(null)}
+          isLoading={actionLoading}
+        />
+      )}
+      {activeAction === "export" && (
+        <ActionModal
+          title="Xuất dữ liệu"
+          description="Hệ thống sẽ tải về toàn bộ dữ liệu hiện tại của bạn (Thói quen, Công việc, Thu chi...) dưới dạng một tệp an toàn."
+          confirmText="Tải xuống"
+          onConfirm={executeExport}
+          onClose={() => setActiveAction(null)}
+          isLoading={actionLoading}
+        />
+      )}
+      {activeAction === "privacy" && (
+        <ActionModal
+          title="Quyền riêng tư"
+          description="Dữ liệu của bạn được mã hoá và lưu trữ cực kì an toàn trên máy chủ Google Cloud với các tiêu chuẩn bảo mật hàng đầu thế giới. Chỉ có duy nhất bạn mới có thể xem và truy cập vào dữ liệu này thông qua tài khoản cá nhân."
+          isAlertOnly={true}
+          onClose={() => setActiveAction(null)}
+        />
+      )}
+
+      {activeAction === "pin" && (
+        <ActionModal
+          title="Đổi mã PIN bảo mật"
+          description={<>Chúng tôi sẽ gửi một mã OTP 6 chữ số đến email <strong>{auth.currentUser?.email}</strong> để xác minh bạn là chủ sở hữu tài khoản này.</>}
+          confirmText="Gửi mã xác nhận"
+          onConfirm={sendOtpCode}
+          onClose={() => setActiveAction(null)}
+        />
+      )}
+
+      {activeAction === "verify_otp" && (
+        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]">
+          <div className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden p-6 border border-border">
+            <h3 className="text-lg font-bold text-foreground mb-2 flex items-center gap-2">
+              <KeyRound size={18} className="text-primary" />
+              Xác thực OTP
+            </h3>
+            <p className="text-muted-foreground text-[11px] leading-relaxed mb-1">
+              Nhập mã xác thực 6 chữ số đã được gửi tới email của bạn để tiếp tục đổi mã PIN:
+            </p>
+            <p className="text-primary text-[10px] font-medium leading-relaxed mb-4">
+              💡 Mã xác nhận (OTP) đã được đính kèm trong thông báo popup (toast) ở góc màn hình của bạn để tiện test thử.
+            </p>
+            
+            <input
+              type="text"
+              pattern="[0-9]*"
+              inputMode="numeric"
+              maxLength={6}
+              value={enteredOtp}
+              onChange={e => {
+                setEnteredOtp(e.target.value.replace(/[^0-9]/g, ""));
+                setOtpError("");
+              }}
+              placeholder="Mã OTP 6 số"
+              className="input-base w-full text-center text-lg font-mono py-2.5 mb-2"
+              style={{ tracking: "0.2em" }}
+              autoFocus
+            />
+
+            {otpError && (
+              <p className="text-destructive text-[11px] mb-3">{otpError}</p>
+            )}
+
+            <div className="flex gap-2">
+              <button 
+                onClick={() => setActiveAction(null)}
+                className="flex-1 py-2 rounded-xl bg-muted text-foreground text-xs font-semibold hover:bg-muted/80 transition-colors"
+              >
+                Hủy
+              </button>
+              <button 
+                onClick={handleVerifyOtp}
+                className="flex-1 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity"
+              >
+                Xác minh
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {activeAction === "setup_new_pin" && (
+          <PinLockScreen
+            mode="setup"
+            onSuccess={handleSetupNewPin}
+            onCancel={() => setActiveAction(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

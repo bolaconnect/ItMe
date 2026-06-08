@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip as RechartTooltip,
@@ -14,7 +14,7 @@ import {
   TransactionSheet, AssetSheet, LiabilitySheet,
   InvestmentSheet, InsuranceSheet, GoalSheet,
 } from "./finance/FinanceForms";
-import { MONTHLY_TREND, fmt, fmtFull } from "./finance/financeStore";
+import { fmt, fmtFull } from "./finance/financeStore";
 import type {
   IncomeItem, ExpenseItem, Asset, Liability,
   Investment, Insurance, Goal,
@@ -242,15 +242,19 @@ export function FinancePage() {
   async function handleDeleteGoal(numId: number)       { const f = getFid(goals, numId);        if (uid && f) await deleteGoal(uid, f); }
 
   /* ── Computed values ── */
-  const totalIncome  = incomeItems.reduce((s, i) => s + i.amount, 0);
-  const totalExpense = expenseItems.reduce((s, i) => s + i.amount, 0);
+  const currentMonth = new Date().toLocaleDateString("en-CA").substring(0, 7); // YYYY-MM
+  const monthIncomes = incomeItems.filter(i => i.date?.startsWith(currentMonth));
+  const monthExpenses = expenseItems.filter(e => e.date?.startsWith(currentMonth));
+
+  const totalIncome  = monthIncomes.reduce((s, i) => s + i.amount, 0);
+  const totalExpense = monthExpenses.reduce((s, i) => s + i.amount, 0);
   const totalAssets  = assets.reduce((s, a) => s + a.value, 0);
   const totalLiab    = liabilities.reduce((s, l) => s + l.remaining, 0);
   const netWorth     = totalAssets - totalLiab;
   const savingRate   = totalIncome > 0 ? Math.round(((totalIncome - totalExpense) / totalIncome) * 100) : 0;
   const cashflow     = totalIncome - totalExpense;
   const cfPositive   = cashflow >= 0;
-  const cfItems      = cfView === "expense" ? expenseItems : incomeItems;
+  const cfItems      = cfView === "expense" ? monthExpenses : monthIncomes;
   const cfTotal      = cfItems.reduce((s, i) => s + i.amount, 0);
   const totalInvest  = investments.reduce((s, i) => s + i.value, 0);
   const emergencyGoal = goals.find(g => g.name === "Quỹ khẩn cấp");
@@ -258,6 +262,23 @@ export function FinancePage() {
     acc[a.group] = (acc[a.group] ?? 0) + a.value; return acc;
   }, {});
   const assetPieData = Object.entries(assetGroups).map(([name, value]) => ({ name, value }));
+
+  const monthlyTrendData = useMemo(() => {
+    const data = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const prefix = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      
+      let inc = 0;
+      let exp = 0;
+      incomeItems.forEach(item => { if (item.date?.startsWith(prefix)) inc += item.amount; });
+      expenseItems.forEach(item => { if (item.date?.startsWith(prefix)) exp += item.amount; });
+      
+      data.push({ month: `T${d.getMonth() + 1}`, income: inc, expense: exp });
+    }
+    return data;
+  }, [incomeItems, expenseItems]);
 
   const GROUP_COLORS: Record<string, string> = {
     "Tiền & Ngân hàng": "#5B4CF5", "Vàng & Hàng hóa": "#FFD700",
@@ -330,7 +351,7 @@ export function FinancePage() {
           <div className="bg-card rounded-2xl border border-border p-5 mb-3">
             <p className="text-sm font-semibold text-foreground mb-4">Thu / Chi 6 tháng</p>
             <ResponsiveContainer width="100%" height={160}>
-              <AreaChart data={MONTHLY_TREND} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+              <AreaChart data={monthlyTrendData} margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
                 <defs>
                   <linearGradient id="finInc" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%"  stopColor="#5B4CF5" stopOpacity={0.2} />

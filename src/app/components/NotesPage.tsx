@@ -99,6 +99,7 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
   const [editContent, setEditContent] = useState("");
   const [showMobile, setShowMobile] = useState(false); // mobile: show editor
   const [isLoading, setIsLoading]   = useState(true);
+  const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const uid = auth.currentUser?.uid;
@@ -195,9 +196,14 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
     setTimeout(() => textareaRef.current?.focus(), 50);
   }
 
-  async function deleteNote(id: string) {
-    if (!uid) return;
-    if (!confirm("Bạn có chắc chắn muốn xóa ghi chú này?")) return;
+  function deleteNote(id: string) {
+    setNoteToDelete(id);
+  }
+
+  async function confirmDelete() {
+    if (!uid || !noteToDelete) return;
+    const id = noteToDelete;
+    setNoteToDelete(null);
     
     setNotes(prev => prev.filter(n => n.id !== id));
     const remaining = filtered.filter(n => n.id !== id);
@@ -507,6 +513,46 @@ export function NotesPage({ onModal }: { onModal?: (open: boolean) => void }) {
       >
         <Plus size={20} />
       </button>
+
+      {/* ── Confirm Delete Modal ── */}
+      <AnimatePresence>
+        {noteToDelete && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setNoteToDelete(null)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative w-full max-w-sm bg-card rounded-2xl p-6 shadow-2xl border border-border"
+            >
+              <h3 className="text-xl font-bold text-foreground mb-2">Xóa ghi chú</h3>
+              <p className="text-muted-foreground text-[15px] mb-6">
+                Bạn có chắc chắn muốn xóa ghi chú này? Hành động này không thể hoàn tác.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setNoteToDelete(null)}
+                  className="flex-1 py-2.5 rounded-xl font-semibold bg-muted text-foreground hover:bg-muted/80 transition-colors"
+                >
+                  Hủy
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 py-2.5 rounded-xl font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20"
+                >
+                  Xóa
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

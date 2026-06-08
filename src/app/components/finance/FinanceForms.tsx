@@ -66,7 +66,8 @@ export function TransactionSheet({ type, open, editing, onClose, onSave, onDelet
       amount:   n,
       icon:     CATEGORY_ICON[category] ?? "💰",
       color:    editing?.color ?? colors[colorIdx],
-    });
+      date:     (editing as any)?.date ?? new Date().toLocaleDateString("en-CA"),
+    } as any);
     onClose();
   }
 

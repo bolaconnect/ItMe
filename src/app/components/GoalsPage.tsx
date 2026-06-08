@@ -11,7 +11,7 @@ import { subscribeGoals, addGoal, updateGoal, deleteGoal as deleteGoalFromFireba
 import { useAppStore, getRecoveryInfo } from "../store/useAppStore";
 import { Loader2 } from "lucide-react";
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = new Date().toLocaleDateString("en-CA");
 const DAY_LABELS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
 function getPast7Days() {
@@ -541,14 +541,6 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Stats header ── */}
         <div className="shrink-0 px-4 lg:px-6 pt-4 pb-3 space-y-4">
-          <div className="flex items-center justify-between">
-            <LunarCountdownBadge />
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-xl font-medium text-sm">
-              <ShieldPlus size={16} />
-              Cứu chuỗi: {getRecoveryInfo(habits, goals, settings).remaining}/{getRecoveryInfo(habits, goals, settings).maxRecoveries}
-            </div>
-          </div>
-
           <div className="grid grid-cols-3 gap-2">
             {[
               { icon: Target, label: "Đang làm",    value: active.length, color: "var(--primary)", bg: "var(--secondary)" },
@@ -590,21 +582,26 @@ export function GoalsPage({ onModal }: { onModal?: (open: boolean) => void }) {
           )}
 
           {/* Filters */}
-          <div className="flex gap-1.5">
-            {(["all", "active", "done"] as const).map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`flex-1 py-1.5 rounded-xl transition-all ${
-                  filter === f
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted text-muted-foreground"
-                }`}
-                style={{ fontSize: "0.8rem", fontWeight: 600 }}
-              >
-                {f === "all" ? "Tất cả" : f === "active" ? "Đang làm" : "Hoàn thành"}
-              </button>
-            ))}
+          <div className="flex items-center justify-between gap-1.5">
+            <div className="flex gap-1.5">
+              {(["all", "active", "done"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFilter(f)}
+                  className={`px-3 py-1.5 rounded-xl transition-all ${
+                    filter === f ? "bg-primary text-primary-foreground font-semibold" : "text-muted-foreground hover:bg-muted"
+                  }`}
+                  style={{ fontSize: "0.8125rem" }}
+                >
+                  {f === "all" ? "Tất cả" : f === "active" ? "Đang làm" : "Đã xong"}
+                </button>
+              ))}
+            </div>
+            
+            <div className="flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-lg font-semibold text-[11px] shrink-0">
+              <ShieldPlus size={12} />
+              <span>Cứu chuỗi: {getRecoveryInfo(habits, goals, settings).remaining}/{getRecoveryInfo(habits, goals, settings).maxRecoveries}</span>
+            </div>
           </div>
           <div className="flex gap-1.5 overflow-x-auto pb-0.5 -mx-4 lg:-mx-6 px-4 lg:px-6">
             <button

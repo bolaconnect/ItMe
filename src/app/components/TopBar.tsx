@@ -1,10 +1,12 @@
-import { Bell, Search, User, X } from "lucide-react";
-import { useState, useRef, useEffect } from "react";
+import { Bell, Search, User, X, Calendar, CheckSquare, Sparkles } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Page } from "./MainApp";
 import { auth } from "../../lib/firebase";
 import { useCalculatedNotifications } from "../../lib/notificationsService";
 import { useNotificationAlerts } from "./useNotificationAlerts";
+import { useAppStore } from "../store/useAppStore";
+import { getUpcomingLunarEvents } from "../utils/lunarCalendar";
 
 /* ── Page titles & greetings ── */
 
@@ -29,6 +31,13 @@ const URGENCY_LABELS: Record<string, { text: string; color: string }> = {
   habit:    { text: "Thói quen", color: "#8B5CF6" },
 };
 
+const EMOJI: Record<string, string> = {
+  "Tết Nguyên Đán": "🎊", "Mùng 2 Tết": "🎊", "Mùng 3 Tết": "🎊",
+  "Rằm tháng Giêng": "🌕", "Tết Hàn Thực": "🍡", "Phật Đản": "🪷",
+  "Tết Đoan Ngọ": "🍑", "Lễ Vu Lan": "🪔", "Tết Trung Thu": "🥮",
+  "Ông Táo về trời": "🔥", "Tất Niên": "🎉",
+};
+
 /* ── Component ── */
 
 export function TopBar({ activePage, onNavigate }: { activePage: Page; onNavigate: (p: Page) => void }) {
@@ -41,6 +50,59 @@ export function TopBar({ activePage, onNavigate }: { activePage: Page; onNavigat
   // Data
   const uid = auth.currentUser?.uid;
   const { notifs, unreadCount, unreadIds, markRead, markAllRead, dismissNotif } = useCalculatedNotifications(uid);
+  const { events, tasks } = useAppStore();
+
+  // Calculate upcoming event, task, or holiday
+  const upcomingAlert = useMemo(() => {
+    const now = new Date();
+    const todayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    // 1. Gather upcoming events (next 7 days)
+    const eventCandidates = events
+      .map(ev => {
+        const evDate = new Date(ev.date);
+        const evMidnight = new Date(evDate.getFullYear(), evDate.getMonth(), evDate.getDate()).getTime();
+        const daysLeft = Math.ceil((evMidnight - todayMs) / oneDayMs);
+        return { type: "event" as const, name: ev.title, daysLeft, date: evDate, color: ev.color };
+      })
+      .filter(ev => ev.daysLeft >= 0 && ev.daysLeft <= 7);
+
+    // 2. Gather upcoming tasks (next 7 days, incomplete)
+    const taskCandidates = tasks
+      .filter(t => !t.done && t.dueDate)
+      .map(t => {
+        const tDate = new Date(t.dueDate);
+        const tMidnight = new Date(tDate.getFullYear(), tDate.getMonth(), tDate.getDate()).getTime();
+        const daysLeft = Math.ceil((tMidnight - todayMs) / oneDayMs);
+        return { type: "task" as const, name: t.title, daysLeft, date: tDate };
+      })
+      .filter(t => t.daysLeft >= 0 && t.daysLeft <= 7);
+
+    // Merge events and tasks, sort by daysLeft ascending
+    const personalCandidates = [...eventCandidates, ...taskCandidates].sort((a, b) => {
+      if (a.daysLeft !== b.daysLeft) return a.daysLeft - b.daysLeft;
+      return a.type === "event" ? -1 : 1;
+    });
+
+    if (personalCandidates.length > 0) {
+      return personalCandidates[0];
+    }
+
+    // 3. Fallback to holidays
+    const holidayEvents = getUpcomingLunarEvents(1);
+    if (holidayEvents.length > 0) {
+      const h = holidayEvents[0];
+      return {
+        type: "holiday" as const,
+        name: h.name,
+        daysLeft: h.daysLeft,
+        date: h.solarDate,
+      };
+    }
+
+    return null;
+  }, [events, tasks]);
 
   // Side-effects: toast + web push (handled by dedicated hook)
   useNotificationAlerts(notifs, unreadIds, markRead, onNavigate);
@@ -62,7 +124,10 @@ export function TopBar({ activePage, onNavigate }: { activePage: Page; onNavigat
   }
 
   return (
-    <header className="flex items-center justify-between px-4 lg:px-6 py-3.5 bg-card border-b border-border gap-3">
+    <header 
+      className="flex items-center justify-between px-4 lg:px-6 py-3.5 bg-card border-b border-border gap-3"
+      style={{ paddingTop: "calc(0.875rem + env(safe-area-inset-top, 0px))" }}
+    >
       <div className="min-w-0">
         <h1 className="text-foreground truncate" style={{ fontSize: "1.1rem", fontWeight: 600 }}>
           {titles[activePage]}
@@ -73,6 +138,53 @@ export function TopBar({ activePage, onNavigate }: { activePage: Page; onNavigat
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
+        {upcomingAlert && (
+          <div 
+            onClick={() => {
+              if (upcomingAlert.type === "event") onNavigate("events");
+              else if (upcomingAlert.type === "task") onNavigate("tasks");
+              else if (upcomingAlert.type === "holiday") onNavigate("events");
+            }}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-full cursor-pointer hover:scale-[1.02] active:scale-98 transition-all text-[11px] font-semibold shadow-sm border select-none w-36 shrink-0"
+            style={{
+              background: upcomingAlert.type === "event" 
+                ? "color-mix(in srgb, var(--primary) 8%, transparent)" 
+                : upcomingAlert.type === "task" 
+                  ? "color-mix(in srgb, #8B5CF6 8%, transparent)" 
+                  : "color-mix(in srgb, #F59E0B 8%, transparent)",
+              color: upcomingAlert.type === "event" 
+                ? "var(--primary)" 
+                : upcomingAlert.type === "task" 
+                  ? "#8B5CF6" 
+                  : "#D97706",
+              borderColor: upcomingAlert.type === "event" 
+                ? "color-mix(in srgb, var(--primary) 15%, transparent)" 
+                : upcomingAlert.type === "task" 
+                ? "color-mix(in srgb, #8B5CF6 15%, transparent)" 
+                : "color-mix(in srgb, #F59E0B 15%, transparent)",
+            }}
+          >
+            {upcomingAlert.type === "holiday" ? (
+              <span className="text-xs flex-shrink-0">{EMOJI[upcomingAlert.name] ?? "📅"}</span>
+            ) : upcomingAlert.type === "event" ? (
+              <Sparkles size={11} className="flex-shrink-0" />
+            ) : (
+              <CheckSquare size={11} className="flex-shrink-0" />
+            )}
+            
+            <div className="flex-1 min-w-0 flex items-center justify-between gap-1">
+              <span className="font-bold truncate">{upcomingAlert.name}</span>
+              <span className="opacity-80 flex-shrink-0 text-[9px]">
+                {upcomingAlert.daysLeft === 0 
+                  ? "Hnay" 
+                  : upcomingAlert.daysLeft === 1 
+                    ? "Mai" 
+                    : `${upcomingAlert.daysLeft}n`}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* ── Search ── */}
         <div ref={searchRef} className="relative">
           <div

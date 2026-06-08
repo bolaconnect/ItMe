@@ -8,6 +8,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   GithubAuthProvider,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { FirebaseError } from "firebase/app";
 import { auth } from "../../lib/firebase";
@@ -130,6 +131,31 @@ export function AuthPage({ onLogin }: AuthPageProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState("");
+
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetEmail) return setResetError("Vui lòng nhập email.");
+    setResetLoading(true); setResetError(""); setResetSuccess(false);
+    try {
+      auth.languageCode = "vi";
+      await sendPasswordResetEmail(auth, resetEmail);
+      setResetSuccess(true);
+    } catch (err: any) {
+      if (err instanceof FirebaseError) {
+        if (err.code === "auth/invalid-email") setResetError("Email không hợp lệ.");
+        else if (err.code === "auth/user-not-found") setResetError("Không tìm thấy tài khoản.");
+        else setResetError(err.message);
+      } else setResetError("Đã xảy ra lỗi.");
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   const handleEmailLogin = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!loginEmail || !loginPassword) return setError("Vui lòng nhập đủ email và mật khẩu.");
@@ -219,6 +245,7 @@ export function AuthPage({ onLogin }: AuthPageProps) {
             isLoading={isLoading}
             error={error}
             setError={setError}
+            onOpenReset={() => setShowResetModal(true)}
           />
         </div>
       </div>
@@ -285,6 +312,7 @@ export function AuthPage({ onLogin }: AuthPageProps) {
                     isLoading={isLoading}
                     error={error}
                     setError={setError}
+                    onOpenReset={() => setShowResetModal(true)}
                   />
                 </div>
               </div>
@@ -292,6 +320,66 @@ export function AuthPage({ onLogin }: AuthPageProps) {
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── Forgot Password Modal ── */}
+      <AnimatePresence>
+        {showResetModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setShowResetModal(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
+              className="relative bg-card w-full max-w-sm rounded-2xl shadow-2xl p-6 border border-border"
+            >
+              <h3 className="text-xl font-bold text-foreground mb-2">Khôi phục mật khẩu</h3>
+              
+              {resetSuccess ? (
+                <div className="space-y-4">
+                  <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-green-600 text-[15px] text-center">
+                    Đã gửi email khôi phục. Vui lòng kiểm tra hộp thư của bạn!
+                  </div>
+                  <button onClick={() => setShowResetModal(false)} className="w-full py-2.5 rounded-xl font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-colors">
+                    Đóng
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handlePasswordReset}>
+                  <p className="text-muted-foreground text-[15px] mb-5 leading-relaxed">
+                    Nhập email của bạn để nhận liên kết đặt lại mật khẩu an toàn.
+                  </p>
+                  
+                  {resetError && (
+                    <div className="mb-4 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm text-center">
+                      {resetError}
+                    </div>
+                  )}
+
+                  <div className="space-y-1.5 mb-5">
+                    <label className="text-sm text-foreground">Email</label>
+                    <input
+                      type="email" placeholder="Nhập email của bạn"
+                      value={resetEmail} onChange={e => setResetEmail(e.target.value)}
+                      className="input-base w-full" autoFocus
+                    />
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => setShowResetModal(false)} className="flex-1 py-2.5 rounded-xl font-semibold bg-muted text-foreground hover:bg-muted/80 transition-colors">
+                      Hủy
+                    </button>
+                    <button type="submit" disabled={resetLoading} className="flex-1 py-2.5 rounded-xl font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-colors shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2">
+                      {resetLoading && <Loader2 size={16} className="animate-spin" />} Gửi email
+                    </button>
+                  </div>
+                </form>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -322,6 +410,7 @@ interface FormPanelProps {
   isLoading: boolean;
   error: string;
   setError: (v: string) => void;
+  onOpenReset: () => void;
 }
 
 function FormPanel({
@@ -335,7 +424,7 @@ function FormPanel({
   regPassword, setRegPassword,
   regConfirm, setRegConfirm,
   handleEmailLogin, handleEmailRegister, handleProviderLogin,
-  isLoading, error, setError
+  isLoading, error, setError, onOpenReset
 }: FormPanelProps) {
   return (
     <div className="w-full max-w-[400px]">
@@ -416,7 +505,7 @@ function FormPanel({
             </Field>
 
             <div className="flex justify-end">
-              <button type="button" className="text-sm text-primary hover:underline">
+              <button type="button" onClick={onOpenReset} className="text-sm text-primary hover:underline">
                 Quên mật khẩu?
               </button>
             </div>

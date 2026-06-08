@@ -8,14 +8,14 @@ import {
   Sun, Moon, Coffee, Dumbbell, Book, Heart, Droplets, Music,
 } from "lucide-react";
 
-import { useAppStore, getRecoveryInfo } from "../store/useAppStore";
+import { useAppStore, getRecoveryInfo, isHabitScheduledForToday } from "../store/useAppStore";
 import type { Habit, HabitIcon, Frequency } from "../store/useAppStore";
 import { auth } from "../../lib/firebase";
 import { subscribeHabits, addHabit, updateHabit, deleteHabit as deleteHabitFromFirebase } from "../../lib/habitsService";
 import { Loader2 } from "lucide-react";
 
 /* ── Constants ── */
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = new Date().toLocaleDateString("en-CA");
 
 function getPast7Days() {
   return Array.from({ length: 7 }, (_, i) => {
@@ -25,7 +25,7 @@ function getPast7Days() {
   });
 }
 
-const DAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
+
 const FREQ_LABEL: Record<Frequency, string> = {
   daily: "Hàng ngày",
   weekdays: "Ngày thường",
@@ -76,9 +76,15 @@ function HabitIconEl({ icon, size = 18 }: { icon: HabitIcon; size?: number }) {
 /* ── Week heatmap dots ── */
 function WeekDots({ habit }: { habit: Habit }) {
   const past7 = getPast7Days();
+  const VN_DAYS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+  
   return (
     <div className="flex items-center gap-1">
       {past7.map((date, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - (6 - i));
+        const label = VN_DAYS[d.getDay()];
+
         const done = habit.completedDates.includes(date);
         const isToday = date === TODAY;
         return (
@@ -91,8 +97,8 @@ function WeekDots({ habit }: { habit: Habit }) {
                 ringColor: habit.color,
               }}
             />
-            <span style={{ fontSize: "0.6rem", color: "var(--muted-foreground)" }}>
-              {DAY_LABELS[i]}
+            <span style={{ fontSize: "0.6rem", color: isToday ? "var(--foreground)" : "var(--muted-foreground)", fontWeight: isToday ? 700 : 500 }}>
+              {label}
             </span>
           </div>
         );
@@ -403,14 +409,15 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
   function closeModal() { setFormOpen(false); onModal?.(false); }
 
 
-  const todayDone  = habits.filter(h => h.completedDates.includes(TODAY)).length;
-  const totalToday = habits.length;
+  const scheduledHabits = useMemo(() => habits.filter(h => isHabitScheduledForToday(h, TODAY)), [habits]);
+  const todayDone  = scheduledHabits.filter(h => h.completedDates.includes(TODAY)).length;
+  const totalToday = scheduledHabits.length;
   const overallStreak = habits.length > 0 ? Math.max(...habits.map(h => h.streak)) : 0;
   const pct = totalToday > 0 ? Math.round((todayDone / totalToday) * 100) : 0;
 
   const visible = useMemo(() => habits.filter(h => {
     if (filter === "done")    return h.completedDates.includes(TODAY);
-    if (filter === "pending") return !h.completedDates.includes(TODAY);
+    if (filter === "pending") return isHabitScheduledForToday(h, TODAY) && !h.completedDates.includes(TODAY);
     return true;
   }), [habits, filter]);
 
@@ -458,14 +465,6 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
 
         {/* ── Stats header ── */}
         <div className="shrink-0 px-4 lg:px-6 pt-4 pb-3 space-y-4">
-          <div className="flex items-center justify-between">
-            <LunarCountdownBadge />
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-xl font-medium text-sm">
-              <ShieldPlus size={16} />
-              Cứu chuỗi: {getRecoveryInfo(habits, goals, settings).remaining}/{getRecoveryInfo(habits, goals, settings).maxRecoveries}
-            </div>
-          </div>
-
           {/* 3 stat cards */}
           <div className="grid grid-cols-3 gap-3">
             {[
@@ -505,31 +504,38 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
           </div>
 
           {/* Filter tabs */}
-          <div className="flex gap-2">
-            {([
-              { id: "all",     label: "Tất cả",     count: habits.length },
-              { id: "pending", label: "Chưa xong",  count: habits.filter(h => !h.completedDates.includes(TODAY)).length },
-              { id: "done",    label: "Đã xong",    count: todayDone },
-            ] as const).map(({ id, label, count }) => (
-              <button
-                key={id}
-                onClick={() => setFilter(id)}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl transition-all ${
-                  filter === id
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-muted text-muted-foreground hover:bg-secondary hover:text-secondary-foreground"
-                }`}
-                style={{ fontSize: "0.8125rem", fontWeight: 600 }}
-              >
-                {label}
-                <span
-                  className={`px-1.5 py-0.5 rounded-full ${filter === id ? "bg-white/20" : "bg-background"}`}
-                  style={{ fontSize: "0.7rem", fontWeight: 700 }}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex bg-muted/50 p-1 rounded-xl text-[13px] font-medium overflow-x-auto no-scrollbar snap-x flex-1">
+              {[
+                { id: "all",     label: "Tất cả",     count: habits.length },
+                { id: "pending", label: "Chưa xong",  count: scheduledHabits.filter(h => !h.completedDates.includes(TODAY)).length },
+                { id: "done",    label: "Đã hoàn thành", count: todayDone },
+              ].map(({ id, label, count }) => (
+                <button
+                  key={id}
+                  onClick={() => setFilter(id)}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                    filter === id
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:bg-secondary/40 hover:text-secondary-foreground"
+                  }`}
+                  style={{ fontSize: "0.8125rem", fontWeight: 600 }}
                 >
-                  {count}
-                </span>
-              </button>
-            ))}
+                  {label}
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full ${filter === id ? "bg-white/20" : "bg-background"}`}
+                    style={{ fontSize: "0.7rem", fontWeight: 700 }}
+                  >
+                    {count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-1 px-2.5 py-1.5 bg-primary/10 text-primary rounded-xl font-semibold text-[11px] shrink-0 h-9">
+              <ShieldPlus size={12} />
+              <span>Cứu chuỗi: {getRecoveryInfo(habits, goals, settings).remaining}/{getRecoveryInfo(habits, goals, settings).maxRecoveries}</span>
+            </div>
           </div>
         </div>
 

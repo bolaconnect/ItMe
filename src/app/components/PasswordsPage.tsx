@@ -402,7 +402,7 @@ function CredentialCard({
 }
 
 /* ── PIN Lock & Setup Screen ── */
-function PinLockScreen({
+export function PinLockScreen({
   mode: initialMode,
   savedHash,
   onSuccess,
@@ -838,11 +838,11 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
 
   async function handleSave(data: Omit<Credential, "id" | "updatedAt"> & { id?: string }) {
     if (!uid) return;
-    const today = new Date().toISOString().slice(0, 10);
+    const TODAY = new Date().toLocaleDateString("en-CA");
     if (data.id) {
-      await updateCredential(uid, data.id, { ...data, updatedAt: today });
+      await updateCredential(uid, data.id, { ...data, updatedAt: TODAY });
     } else {
-      await addCredential(uid, { ...data, updatedAt: today });
+      await addCredential(uid, { ...data, updatedAt: TODAY });
     }
     closeForm();
   }
@@ -1033,14 +1033,6 @@ export function PasswordsPage({ onModal }: { onModal?: (open: boolean) => void }
               className="shrink-0 w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
             >
               {searchOpen ? <X size={16} /> : <Search size={16} />}
-            </button>
-
-            <button
-              onClick={() => setChangePinMode(true)}
-              title="Đổi mã PIN bảo mật"
-              className="shrink-0 w-9 h-9 rounded-xl bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RefreshCw size={15} />
             </button>
           </div>
 

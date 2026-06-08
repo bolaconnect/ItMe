@@ -7,8 +7,8 @@ import {
 import { useAppStore, CalEvent } from "../store/useAppStore";
 import { auth } from "../../lib/firebase";
 import { subscribeEvents, addEvent, deleteEvent } from "../../lib/eventsService";
-import { subscribeTasks, addTask, updateTask } from "../../lib/tasksService";
-import { addHabit } from "../../lib/habitsService";
+import { subscribeTasks, addTask, updateTask, deleteTask } from "../../lib/tasksService";
+import { addHabit, deleteHabit } from "../../lib/habitsService";
 import { TYPE_META, PRIORITY_COLOR, EventDetailModal, EventForm, CalendarPage } from "./CalendarPage";
 import { solarToLunar } from "../utils/lunarCalendar";
 
@@ -19,7 +19,11 @@ function toISO(d: Date) {
 }
 const TODAY = toISO(new Date());
 
-export function EventsPage() {
+interface EventsPageProps {
+  activeTab?: "tasks" | "events";
+}
+
+export function EventsPage({ activeTab }: EventsPageProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [detail, setDetail]     = useState<CalEvent | null>(null);
 
@@ -27,10 +31,26 @@ export function EventsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterType, setFilterType]   = useState<"all" | "event" | "task">("all");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [viewMode, setViewMode]         = useState<"list" | "calendar">("list");
+  const [viewMode, setViewMode] = useState<"list" | "calendar">(() => {
+    return (localStorage.getItem("eventsViewMode") as "list" | "calendar") || "list";
+  });
+
+  useEffect(() => {
+    localStorage.setItem("eventsViewMode", viewMode);
+  }, [viewMode]);
 
   const { events, setEvents, tasks, setTasks } = useAppStore();
   const uid = auth.currentUser?.uid;
+
+  // Sync tab/view with activeTab prop from dashboard/navigation
+  useEffect(() => {
+    if (activeTab === "tasks") {
+      setViewMode("list");
+      setFilterType("task");
+    } else if (activeTab === "events") {
+      setFilterType("all");
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     if (!uid) return;
@@ -138,7 +158,12 @@ export function EventsPage() {
   }, []);
 
   const todayEventsCount = combinedEvents.filter(e => e.date === TODAY && e.type === "event").length;
-  const todayTasksCount = tasks.filter(t => t.dueDate === TODAY && !t.done).length;
+  const todayTasksCount = useMemo(() => {
+    const todayTasks = tasks.filter(t => !t.done || t.dueDate === TODAY);
+    const done = todayTasks.filter(t => t.done).length;
+    const total = todayTasks.length;
+    return total - done;
+  }, [tasks]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-background">
@@ -257,7 +282,7 @@ export function EventsPage() {
                   <button
                     key={day.dateStr}
                     onClick={() => setSelectedDate(day.dateStr)}
-                    className={`flex-shrink-0 flex flex-col items-center justify-center w-[52px] h-[64px] rounded-2xl border transition-all relative ${
+                    className={`flex-shrink-0 flex flex-col items-center justify-center w-[52px] h-[68px] pb-1.5 rounded-2xl border transition-all relative ${
                       active
                         ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/20 scale-[1.02]"
                         : day.isToday
@@ -419,8 +444,11 @@ export function EventsPage() {
             ev={detail}
             onClose={() => setDetail(null)}
             onDelete={async (id) => {
-              if (uid && detail.type === "event") {
-                await deleteEvent(uid, id as any);
+              if (uid) {
+                const cleanId = id.replace(/_(task|habit)$/, "");
+                if (detail.type === "event") await deleteEvent(uid, cleanId);
+                else if (detail.type === "task") await deleteTask(uid, cleanId);
+                else if (detail.type === "habit") await deleteHabit(uid, cleanId);
               }
               setDetail(null);
             }}

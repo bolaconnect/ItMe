@@ -11,8 +11,8 @@ import { useAppStore, CalEvent, EventType, HabitIcon, Frequency, Habit } from ".
 import type { Task, Priority } from "./tasks/taskData";
 import { auth } from "../../lib/firebase";
 import { subscribeEvents, addEvent, deleteEvent } from "../../lib/eventsService";
-import { addTask } from "../../lib/tasksService";
-import { addHabit } from "../../lib/habitsService";
+import { addTask, deleteTask } from "../../lib/tasksService";
+import { addHabit, deleteHabit } from "../../lib/habitsService";
 
 /* ── Constants ── */
 const VN_DAYS  = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
@@ -451,6 +451,7 @@ function DayModal({
 /* ── Event detail modal ── */
 export function EventDetailModal({ ev, onClose, onDelete }: { ev: CalEvent; onClose: () => void; onDelete: (id: string) => void }) {
   const meta = TYPE_META[ev.type];
+  const [showConfirm, setShowConfirm] = useState(false);
   return (
     <motion.div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4"
@@ -500,18 +501,43 @@ export function EventDetailModal({ ev, onClose, onDelete }: { ev: CalEvent; onCl
           </div>
         </div>
 
-        {ev.type === "event" && (
-          <div className="px-5 pb-5">
-            <button
-              onClick={() => { onDelete(ev.id); onClose(); }}
-              className="w-full py-2.5 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
-              style={{ fontWeight: 600, fontSize: "0.875rem" }}
-            >
-              Xoá sự kiện
-            </button>
-          </div>
-        )}
+        <div className="px-5 pb-5">
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="w-full py-2.5 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
+            style={{ fontWeight: 600, fontSize: "0.875rem" }}
+          >
+            Xoá {meta.label.toLowerCase()}
+          </button>
+        </div>
       </motion.div>
+
+      <AnimatePresence>
+        {showConfirm && (
+          <motion.div
+            className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px]"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-card w-full rounded-2xl shadow-2xl p-6 border border-border"
+              initial={{ scale: 0.95 }} animate={{ scale: 1 }} exit={{ scale: 0.95 }}
+            >
+              <h3 className="text-xl font-bold text-foreground mb-2">Xóa {meta.label.toLowerCase()}</h3>
+              <p className="text-muted-foreground text-[15px] mb-6 leading-relaxed">
+                Bạn có chắc chắn muốn xóa {meta.label.toLowerCase()} <strong>{ev.title}</strong> này? Hành động này không thể hoàn tác.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setShowConfirm(false)} className="flex-1 py-2.5 rounded-xl font-semibold bg-muted text-foreground hover:bg-muted/80 transition-colors">
+                  Hủy
+                </button>
+                <button onClick={() => { onDelete(ev.id); onClose(); }} className="flex-1 py-2.5 rounded-xl font-semibold bg-red-500 text-white hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20">
+                  Xóa
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -615,8 +641,6 @@ export function CalendarPage({ onBack, hideFab = false }: { onBack?: () => void;
           ))}
         </div>
       </div>
-
-      <LunarCountdownStrip count={5} />
 
       {/* ── Main content ── */}
       <div className="flex-1 overflow-hidden flex">
@@ -730,7 +754,14 @@ export function CalendarPage({ onBack, hideFab = false }: { onBack?: () => void;
       </div>
 
       <AnimatePresence>{dayModal && <DayModal date={dayModal} events={eventsForDate(dayModal)} onClose={() => setDayModal(null)} onAdd={() => { setDayModal(null); setFormOpen(true); }} onSelectEvent={ev => { setDayModal(null); setDetail(ev); }} />}</AnimatePresence>
-      <AnimatePresence>{detail && <EventDetailModal ev={detail} onClose={() => setDetail(null)} onDelete={async (id) => { if (uid) await deleteEvent(uid, id as any); }} />}</AnimatePresence>
+      <AnimatePresence>{detail && <EventDetailModal ev={detail} onClose={() => setDetail(null)} onDelete={async (id) => { 
+        if (uid) {
+          const cleanId = id.replace(/_(task|habit)$/, "");
+          if (detail.type === "event") await deleteEvent(uid, cleanId);
+          else if (detail.type === "task") await deleteTask(uid, cleanId);
+          else if (detail.type === "habit") await deleteHabit(uid, cleanId);
+        }
+      }} />}</AnimatePresence>
 
       <AnimatePresence>
         {(() => {

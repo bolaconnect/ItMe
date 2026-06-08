@@ -20,6 +20,13 @@ export interface Habit {
   createdAt?: any;
 }
 
+export function isHabitScheduledForToday(habit: Habit, dateStr: string = new Date().toLocaleDateString("en-CA")): boolean {
+  const d = new Date(dateStr);
+  const day = d.getDay();
+  if (habit.frequency === "weekdays" && (day === 0 || day === 6)) return false;
+  if (habit.frequency === "weekends" && day !== 0 && day !== 6) return false;
+  return true;
+}
 
 
 /* ── Event Types ── */

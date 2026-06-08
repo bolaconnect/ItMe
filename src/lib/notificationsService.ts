@@ -8,9 +8,12 @@ import { useState, useEffect, useMemo } from "react";
 import { subscribeTasks } from "./tasksService";
 import { subscribeEvents } from "./eventsService";
 import { subscribeHabits } from "./habitsService";
-import { AlertTriangle, Clock, Calendar, Flame } from "lucide-react";
+import { subscribeGoals } from "./goalsService";
+import { getUpcomingLunarEvents } from "../app/utils/lunarCalendar";
+import { AlertTriangle, Clock, Calendar, Flame, Target } from "lucide-react";
 import type { Task } from "../app/components/tasks/taskData";
 import type { CalEvent, Habit } from "../app/store/useAppStore";
+import type { Goal } from "./goalsService";
 
 /* ── Types ── */
 
@@ -25,7 +28,7 @@ export interface CalculatedNotif {
   time: string;
   read: boolean;
   timestamp: number;
-  targetPage: "tasks" | "events" | "habits";
+  targetPage: "tasks" | "events" | "habits" | "goals";
 }
 
 /* ── Helpers ── */
@@ -52,6 +55,7 @@ export function useCalculatedNotifications(uid: string | undefined) {
   const [tasks, setTasks]   = useState<Task[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
+  const [goals, setGoals]   = useState<Goal[]>([]);
 
   /* ─ Read / Dismissed state (persisted) ─ */
   const [readIds, setReadIds]         = useState<string[]>(() => safeJsonParse("itme_read_notif_ids", []));
@@ -71,6 +75,7 @@ export function useCalculatedNotifications(uid: string | undefined) {
       subscribeTasks(uid, setTasks),
       subscribeEvents(uid, setEvents),
       subscribeHabits(uid, setHabits),
+      subscribeGoals(uid, setGoals),
     ];
     return () => unsubs.forEach((fn) => fn());
   }, [uid]);
@@ -92,7 +97,7 @@ export function useCalculatedNotifications(uid: string | undefined) {
 
     // ── Tasks ──
     for (const task of tasks) {
-      if (task.done || !task.dueDate) continue;
+      if (!task.title || task.done || !task.dueDate) continue;
       const dueMs = Date.parse(`${task.dueDate}T${task.dueTime || "23:59"}:00`);
       if (isNaN(dueMs)) continue;
       const diffH = (dueMs - nowMs) / 3_600_000;
@@ -116,8 +121,8 @@ export function useCalculatedNotifications(uid: string | undefined) {
 
         list.push({
           id, type: "overdue", icon: AlertTriangle, iconColor: "#EF4444", iconBg: "#FEF2F2",
-          title: `Trễ hạn: ${task.title}`,
-          body: `Công việc này đã trễ hạn ${time.replace(" trước", "")}! Vui lòng hoàn thành ngay.`,
+          title: `⏰ Chờ bạn hoàn thành: ${task.title}`,
+          body: `Công việc này đã quá hạn ${time.replace(" trước", "")} rồi. Dành chút thời gian hoàn tất nhé, bạn sẽ làm được thôi!`,
           time, read: readIds.includes(id), timestamp: dueMs, targetPage: "tasks",
         });
       } else if (diffH <= 24) {
@@ -135,8 +140,8 @@ export function useCalculatedNotifications(uid: string | undefined) {
 
         list.push({
           id, type: "upcoming", icon: Clock, iconColor: "#F59E0B", iconBg: "#FFFBEB",
-          title: `Sắp đến hạn: ${task.title}`,
-          body: `Hạn chốt vào lúc ${task.dueTime || "cuối ngày"} hôm nay.`,
+          title: `📌 Nhắc nhỏ: ${task.title}`,
+          body: `Hạn chót là ${task.dueTime || "cuối ngày"} hôm nay. Cố gắng hoàn thành sớm để thảnh thơi nhé!`,
           time, read: readIds.includes(id), timestamp: dueMs, targetPage: "tasks",
         });
       }
@@ -144,7 +149,7 @@ export function useCalculatedNotifications(uid: string | undefined) {
 
     // ── Events ──
     for (const event of events) {
-      if (!event.date) continue;
+      if (!event.title || !event.date) continue;
       const eventMs = Date.parse(`${event.date}T${event.time || "00:00"}:00`);
       if (isNaN(eventMs)) continue;
       const diffH = (eventMs - nowMs) / 3_600_000;
@@ -157,8 +162,8 @@ export function useCalculatedNotifications(uid: string | undefined) {
       const loc = event.location ? ` tại ${event.location}` : "";
       list.push({
         id, type: "event", icon: Calendar, iconColor: "#3B82F6", iconBg: "#EFF6FF",
-        title: `Sắp diễn ra: ${event.title}`,
-        body: `Sự kiện bắt đầu lúc ${event.time || "00:00"}${loc}.`,
+        title: `📅 Sự kiện sắp tới: ${event.title}`,
+        body: `Sự kiện sẽ diễn ra vào lúc ${event.time || "00:00"}${loc}. Chúc bạn có những giây phút tuyệt vời!`,
         time, read: readIds.includes(id), timestamp: eventMs, targetPage: "events",
       });
     }
@@ -167,7 +172,7 @@ export function useCalculatedNotifications(uid: string | undefined) {
     const dow = now.getDay();
     const isWeekend = dow === 0 || dow === 6;
     for (const habit of habits) {
-      if (habit.completedDates?.includes(today)) continue;
+      if (!habit.name || habit.completedDates?.includes(today)) continue;
       if (habit.frequency === "weekdays" && isWeekend) continue;
       if (habit.frequency === "weekends" && !isWeekend) continue;
 
@@ -175,9 +180,51 @@ export function useCalculatedNotifications(uid: string | undefined) {
       if (dismissedIds.includes(id)) { console.log(`[NotifService] SKIP dismissed: ${id}`); continue; }
       list.push({
         id, type: "habit", icon: Flame, iconColor: "#8B5CF6", iconBg: "#F5F3FF",
-        title: `Thói quen: ${habit.name}`,
-        body: "Đừng quên check-in thói quen hôm nay để duy trì streak nhé!",
+        title: `🌱 Giữ vững thói quen: ${habit.name}`,
+        body: "Đừng quên check-in thói quen hôm nay nhé. Mỗi hành động nhỏ đều giúp bạn tiến gần hơn đến mục tiêu!",
         time: "Hôm nay", read: readIds.includes(id), timestamp: nowMs - 60_000, targetPage: "habits",
+      });
+    }
+
+    // ── Goals ──
+    for (const goal of goals) {
+      if (!goal.title || goal.status !== "active" || !goal.deadline) continue;
+      const dlMs = Date.parse(`${goal.deadline}T23:59:59`);
+      if (isNaN(dlMs)) continue;
+      const diffDays = Math.ceil((dlMs - nowMs) / 86_400_000);
+
+      if (diffDays < 0) {
+        const id = `goal-overdue-${goal.id}-${goal.deadline}`;
+        if (dismissedIds.includes(id)) continue;
+        list.push({
+          id, type: "overdue", icon: Target, iconColor: "#EF4444", iconBg: "#FEF2F2",
+          title: `🎯 Đang chờ hoàn thành: ${goal.title}`,
+          body: `Mục tiêu này đã qua ngày hạn chót (${new Date(goal.deadline).toLocaleDateString("vi-VN")}). Đừng nản lòng, hãy cập nhật tiến trình hoặc gia hạn thêm thời gian nhé!`,
+          time: `${Math.abs(diffDays)} ngày trước`, read: readIds.includes(id), timestamp: dlMs, targetPage: "goals",
+        });
+      } else if (diffDays <= 3) {
+        const id = `goal-upcoming-${goal.id}-${goal.deadline}`;
+        if (dismissedIds.includes(id)) continue;
+        const timeText = diffDays === 0 ? "Hôm nay là hạn chót" : diffDays === 1 ? "Hạn chót vào ngày mai" : `Còn ${diffDays} ngày nữa`;
+        list.push({
+          id, type: "upcoming", icon: Target, iconColor: "#3B82F6", iconBg: "#EFF6FF",
+          title: `🎯 Tăng tốc mục tiêu: ${goal.title}`,
+          body: `${timeText} (${new Date(goal.deadline).toLocaleDateString("vi-VN")}). Bạn đã hoàn thành được ${goal.current}/${goal.target} ${goal.unit || ""} rồi, cố lên!`,
+          time: diffDays === 0 ? "Hôm nay" : `${diffDays} ngày nữa`, read: readIds.includes(id), timestamp: dlMs, targetPage: "goals",
+        });
+      }
+    }
+
+    // ── Holidays ──
+    const todayHolidays = getUpcomingLunarEvents(5).filter(h => h.daysLeft === 0);
+    for (const h of todayHolidays) {
+      const id = `holiday-today-${h.name}-${today}`;
+      if (dismissedIds.includes(id)) continue;
+      list.push({
+        id, type: "event", icon: Calendar, iconColor: "#EF4444", iconBg: "#FFF1F2",
+        title: `🎉 Chúc mừng ngày lễ: ${h.name}`,
+        body: `Hôm nay là ${h.name} (${h.lunarDay}/${h.lunarMonth} Âm lịch). Chúc bạn và gia đình có một ngày thật vui vẻ, trọn vẹn và tràn đầy ấm áp!`,
+        time: "Hôm nay", read: readIds.includes(id), timestamp: nowMs, targetPage: "events",
       });
     }
 
@@ -193,7 +240,7 @@ export function useCalculatedNotifications(uid: string | undefined) {
     list.forEach(n => console.log(`  → [${n.read ? "READ" : "UNREAD"}] ${n.type}: ${n.title} (${n.id})`));
 
     return list;
-  }, [tasks, events, habits, readIds, dismissedIds, tick]);
+  }, [tasks, events, habits, goals, readIds, dismissedIds, tick]);
 
   /* ─ Derived values ─ */
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);

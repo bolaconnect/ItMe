@@ -14,6 +14,10 @@ import { PasswordsPage } from "./PasswordsPage";
 import { ToastProvider } from "./ToastNotification";
 import { auth } from "../../lib/firebase";
 import { subscribeSettings } from "../../lib/settingsService";
+import { subscribeTasks } from "../../lib/tasksService";
+import { subscribeHabits } from "../../lib/habitsService";
+import { subscribeEvents } from "../../lib/eventsService";
+import { subscribeGoals } from "../../lib/goalsService";
 import { useAppStore } from "../store/useAppStore";
 
 export type Page = "dashboard" | "tasks" | "goals" | "habits" | "finance" | "notes" | "passwords" | "events" | "profile";
@@ -27,10 +31,15 @@ export function MainApp() {
 
   const setSettings = useAppStore(state => state.setSettings);
   const setBottomNavTabs = useAppStore(state => state.setBottomNavTabs);
+  const setTasks = useAppStore(state => state.setTasks);
+  const setHabits = useAppStore(state => state.setHabits);
+  const setEvents = useAppStore(state => state.setEvents);
+  const setGoals = useAppStore(state => state.setGoals);
 
   useEffect(() => {
     if (!auth.currentUser) return;
-    const unsub = subscribeSettings(auth.currentUser.uid, (data) => {
+    const uid = auth.currentUser.uid;
+    const unsubSettings = subscribeSettings(uid, (data) => {
       setSettings(data);
       if (data.bottomNavTabs && data.bottomNavTabs.length === 4) {
         let normalized = data.bottomNavTabs.map(t => (t === "tasks" || t === "calendar") ? "events" : (t as Page));
@@ -45,8 +54,20 @@ export function MainApp() {
         setBottomNavTabs(normalized.slice(0, 4) as Page[]);
       }
     });
-    return () => unsub();
-  }, [setSettings, setBottomNavTabs]);
+
+    const unsubTasks = subscribeTasks(uid, setTasks);
+    const unsubHabits = subscribeHabits(uid, setHabits);
+    const unsubEvents = subscribeEvents(uid, setEvents);
+    const unsubGoals = subscribeGoals(uid, setGoals);
+
+    return () => {
+      unsubSettings();
+      unsubTasks();
+      unsubHabits();
+      unsubEvents();
+      unsubGoals();
+    };
+  }, [setSettings, setBottomNavTabs, setTasks, setHabits, setEvents, setGoals]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -75,7 +96,7 @@ export function MainApp() {
         <main className="flex-1 overflow-hidden flex flex-col min-h-0 relative">
           {page === "dashboard" && <div className="flex-1 overflow-y-auto"><Dashboard onNavigate={navigate} /></div>}
           {page === "finance"   && <FinancePage />}
-          {(page === "tasks" || page === "events") && <EventsPage />}
+          {(page === "tasks" || page === "events") && <EventsPage activeTab={page} />}
           {page === "goals"     && <GoalsPage onModal={setModalOpen} />}
           {page === "habits"    && <HabitsPage onModal={setModalOpen} />}
           {page === "notes"     && <NotesPage onModal={setModalOpen} />}
