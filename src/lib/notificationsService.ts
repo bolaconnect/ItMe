@@ -1,10 +1,18 @@
-import { useState, useEffect } from "react";
+/**
+ * notificationsService.ts
+ * ───────────────────────
+ * PURE DATA HOOK — tính toán danh sách thông báo từ tasks, events, habits.
+ * Không có side-effect (không gửi web push, không hiện toast).
+ */
+import { useState, useEffect, useMemo } from "react";
 import { subscribeTasks } from "./tasksService";
 import { subscribeEvents } from "./eventsService";
 import { subscribeHabits } from "./habitsService";
 import { AlertTriangle, Clock, Calendar, Flame } from "lucide-react";
 import type { Task } from "../app/components/tasks/taskData";
 import type { CalEvent, Habit } from "../app/store/useAppStore";
+
+/* ── Types ── */
 
 export interface CalculatedNotif {
   id: string;
@@ -20,205 +28,181 @@ export interface CalculatedNotif {
   targetPage: "tasks" | "events" | "habits";
 }
 
+/* ── Helpers ── */
+
+/** Local date YYYY-MM-DD (đúng timezone người dùng) */
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function safeJsonParse<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/* ── Hook ── */
+
 export function useCalculatedNotifications(uid: string | undefined) {
-  const [tasks, setTasks] = useState<Task[]>([]);
+  /* ─ Source data ─ */
+  const [tasks, setTasks]   = useState<Task[]>([]);
   const [events, setEvents] = useState<CalEvent[]>([]);
   const [habits, setHabits] = useState<Habit[]>([]);
-  
-  const [readIds, setReadIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem("itme_read_notif_ids");
-    return saved ? JSON.parse(saved) : [];
-  });
-  
-  const [dismissedIds, setDismissedIds] = useState<string[]>(() => {
-    const saved = localStorage.getItem("itme_dismissed_notif_ids");
-    return saved ? JSON.parse(saved) : [];
-  });
 
-  // Realtime listeners
+  /* ─ Read / Dismissed state (persisted) ─ */
+  const [readIds, setReadIds]         = useState<string[]>(() => safeJsonParse("itme_read_notif_ids", []));
+  const [dismissedIds, setDismissedIds] = useState<string[]>(() => safeJsonParse("itme_dismissed_notif_ids", []));
+
+  /* ─ Ticking clock to trigger updates dynamically ─ */
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Firestore realtime listeners
   useEffect(() => {
     if (!uid) return;
-    const unsubTasks = subscribeTasks(uid, setTasks);
-    const unsubEvents = subscribeEvents(uid, setEvents);
-    const unsubHabits = subscribeHabits(uid, setHabits);
-    
-    return () => {
-      unsubTasks();
-      unsubEvents();
-      unsubHabits();
-    };
+    const unsubs = [
+      subscribeTasks(uid, setTasks),
+      subscribeEvents(uid, setEvents),
+      subscribeHabits(uid, setHabits),
+    ];
+    return () => unsubs.forEach((fn) => fn());
   }, [uid]);
 
-  // Persist read/dismissed states
-  useEffect(() => {
-    localStorage.setItem("itme_read_notif_ids", JSON.stringify(readIds));
-  }, [readIds]);
+  // Persist to localStorage
+  useEffect(() => { localStorage.setItem("itme_read_notif_ids", JSON.stringify(readIds)); }, [readIds]);
+  useEffect(() => { localStorage.setItem("itme_dismissed_notif_ids", JSON.stringify(dismissedIds)); }, [dismissedIds]);
 
-  useEffect(() => {
-    localStorage.setItem("itme_dismissed_notif_ids", JSON.stringify(dismissedIds));
-  }, [dismissedIds]);
+  /* ─ Computed notifications (memoized) ─ */
+  const notifs = useMemo<CalculatedNotif[]>(() => {
+    const list: CalculatedNotif[] = [];
+    const now     = new Date();
+    const today   = localToday();
+    const nowMs   = now.getTime();
 
-  // Calculate notifications list
-  const notifs: CalculatedNotif[] = [];
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10); // YYYY-MM-DD
-  const nowMs = now.getTime();
+    // Debug: show raw data counts
+    console.log(`[NotifService] Computing... tasks: ${tasks.length}, events: ${events.length}, habits: ${habits.length}`);
+    console.log(`[NotifService] readIds: ${readIds.length}, dismissedIds: ${dismissedIds.length}`);
 
-  // 1. Process tasks
-  tasks.forEach((task) => {
-    if (task.done || !task.dueDate) return;
-    
-    const dueTimePart = task.dueTime || "23:59";
-    const dueStr = `${task.dueDate}T${dueTimePart}:00`;
-    const dueMs = Date.parse(dueStr);
-    
-    if (isNaN(dueMs)) return;
-    
-    const diffMs = dueMs - nowMs;
-    const diffHours = diffMs / (1000 * 60 * 60);
+    // ── Tasks ──
+    for (const task of tasks) {
+      if (task.done || !task.dueDate) continue;
+      const dueMs = Date.parse(`${task.dueDate}T${task.dueTime || "23:59"}:00`);
+      if (isNaN(dueMs)) continue;
+      const diffH = (dueMs - nowMs) / 3_600_000;
 
-    if (diffHours < 0) {
-      // Overdue Task (Mức 1 - Đỏ / Khẩn cấp)
-      const id = `task-overdue-${task.id}`;
-      if (dismissedIds.includes(id)) return;
-      
-      const diffDays = Math.abs(Math.floor(diffHours / 24));
-      const timeLabel = diffDays === 0 
-        ? `${Math.abs(Math.round(diffHours))} giờ trước`
-        : `${diffDays} ngày trước`;
+      if (diffH < 0) {
+        const id = `task-overdue-${task.id}-${task.dueDate}-${task.dueTime || "23:59"}`;
+        if (dismissedIds.includes(id)) { console.log(`[NotifService] SKIP dismissed: ${id}`); continue; }
+        
+        const absDiffH = Math.abs(diffH);
+        let time = "";
+        if (absDiffH < 1) {
+          const mins = Math.max(1, Math.round(absDiffH * 60));
+          time = `${mins} phút trước`;
+        } else if (absDiffH < 24) {
+          const hours = Math.round(absDiffH);
+          time = `${hours} giờ trước`;
+        } else {
+          const days = Math.floor(absDiffH / 24);
+          time = `${days} ngày trước`;
+        }
 
-      notifs.push({
-        id,
-        type: "overdue",
-        icon: AlertTriangle,
-        iconColor: "#EF4444",
-        iconBg: "#FEF2F2",
-        title: `Trễ hạn: ${task.title}`,
-        body: `Công việc này đã trễ hạn ${timeLabel}! Vui lòng hoàn thành ngay.`,
-        time: timeLabel,
-        read: readIds.includes(id),
-        timestamp: dueMs,
-        targetPage: "tasks",
-      });
-    } else if (diffHours <= 24) {
-      // Upcoming Task today (Mức 2 - Vàng / Quan trọng)
-      const id = `task-upcoming-${task.id}`;
-      if (dismissedIds.includes(id)) return;
+        list.push({
+          id, type: "overdue", icon: AlertTriangle, iconColor: "#EF4444", iconBg: "#FEF2F2",
+          title: `Trễ hạn: ${task.title}`,
+          body: `Công việc này đã trễ hạn ${time.replace(" trước", "")}! Vui lòng hoàn thành ngay.`,
+          time, read: readIds.includes(id), timestamp: dueMs, targetPage: "tasks",
+        });
+      } else if (diffH <= 24) {
+        const id = `task-upcoming-${task.id}-${task.dueDate}-${task.dueTime || "23:59"}`;
+        if (dismissedIds.includes(id)) { console.log(`[NotifService] SKIP dismissed: ${id}`); continue; }
+        
+        let time = "";
+        if (diffH < 1) {
+          const mins = Math.max(1, Math.round(diffH * 60));
+          time = `Còn ${mins} phút`;
+        } else {
+          const hours = Math.round(diffH);
+          time = `Còn ${hours} giờ`;
+        }
 
-      const timeLabel = `Còn ${Math.round(diffHours)} giờ`;
-      notifs.push({
-        id,
-        type: "upcoming",
-        icon: Clock,
-        iconColor: "#F59E0B",
-        iconBg: "#FFFBEB",
-        title: `Sắp đến hạn: ${task.title}`,
-        body: `Hạn chốt vào lúc ${task.dueTime || "cuối ngày"} hôm nay.`,
-        time: timeLabel,
-        read: readIds.includes(id),
-        timestamp: dueMs,
-        targetPage: "tasks",
-      });
+        list.push({
+          id, type: "upcoming", icon: Clock, iconColor: "#F59E0B", iconBg: "#FFFBEB",
+          title: `Sắp đến hạn: ${task.title}`,
+          body: `Hạn chốt vào lúc ${task.dueTime || "cuối ngày"} hôm nay.`,
+          time, read: readIds.includes(id), timestamp: dueMs, targetPage: "tasks",
+        });
+      }
     }
-  });
 
-  // 2. Process events
-  events.forEach((event) => {
-    if (!event.date) return;
-    
-    const timePart = event.time || "00:00";
-    const eventStr = `${event.date}T${timePart}:00`;
-    const eventMs = Date.parse(eventStr);
-    
-    if (isNaN(eventMs)) return;
-    
-    const diffMs = eventMs - nowMs;
-    const diffHours = diffMs / (1000 * 60 * 60);
+    // ── Events ──
+    for (const event of events) {
+      if (!event.date) continue;
+      const eventMs = Date.parse(`${event.date}T${event.time || "00:00"}:00`);
+      if (isNaN(eventMs)) continue;
+      const diffH = (eventMs - nowMs) / 3_600_000;
+      if (diffH < 0 || diffH > 12) continue;
 
-    // Only alert for events happening today (or in the next 12 hours)
-    if (diffHours >= 0 && diffHours <= 12) {
-      // Upcoming Event (Mức 3 - Xanh / Sự kiện)
-      const id = `event-upcoming-${event.id}`;
-      if (dismissedIds.includes(id)) return;
-
-      const diffMins = Math.round(diffHours * 60);
-      const timeLabel = diffMins < 60 ? `Còn ${diffMins} phút` : `Còn ${Math.round(diffHours)} giờ`;
-      const locStr = event.location ? ` tại ${event.location}` : "";
-      
-      notifs.push({
-        id,
-        type: "event",
-        icon: Calendar,
-        iconColor: "#3B82F6",
-        iconBg: "#EFF6FF",
+      const id = `event-upcoming-${event.id}-${event.date}-${event.time || "00:00"}`;
+      if (dismissedIds.includes(id)) { console.log(`[NotifService] SKIP dismissed: ${id}`); continue; }
+      const mins = Math.round(diffH * 60);
+      const time = mins < 60 ? `Còn ${mins} phút` : `Còn ${Math.round(diffH)} giờ`;
+      const loc = event.location ? ` tại ${event.location}` : "";
+      list.push({
+        id, type: "event", icon: Calendar, iconColor: "#3B82F6", iconBg: "#EFF6FF",
         title: `Sắp diễn ra: ${event.title}`,
-        body: `Sự kiện sẽ bắt đầu vào lúc ${event.time || "00:00"}${locStr}.`,
-        time: timeLabel,
-        read: readIds.includes(id),
-        timestamp: eventMs,
-        targetPage: "events",
+        body: `Sự kiện bắt đầu lúc ${event.time || "00:00"}${loc}.`,
+        time, read: readIds.includes(id), timestamp: eventMs, targetPage: "events",
       });
     }
-  });
 
-  // 3. Process habits
-  habits.forEach((habit) => {
-    const completedToday = habit.completedDates?.includes(todayStr);
-    if (completedToday) return;
+    // ── Habits ──
+    const dow = now.getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    for (const habit of habits) {
+      if (habit.completedDates?.includes(today)) continue;
+      if (habit.frequency === "weekdays" && isWeekend) continue;
+      if (habit.frequency === "weekends" && !isWeekend) continue;
 
-    const dayOfWeek = now.getDay(); 
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-    const isWeekday = !isWeekend;
+      const id = `habit-today-${habit.id}-${today}`;
+      if (dismissedIds.includes(id)) { console.log(`[NotifService] SKIP dismissed: ${id}`); continue; }
+      list.push({
+        id, type: "habit", icon: Flame, iconColor: "#8B5CF6", iconBg: "#F5F3FF",
+        title: `Thói quen: ${habit.name}`,
+        body: "Đừng quên check-in thói quen hôm nay để duy trì streak nhé!",
+        time: "Hôm nay", read: readIds.includes(id), timestamp: nowMs - 60_000, targetPage: "habits",
+      });
+    }
 
-    if (habit.frequency === "weekdays" && !isWeekday) return;
-    if (habit.frequency === "weekends" && !isWeekend) return;
-
-    // Habit check-in reminder (Mức 4 - Tím / Thói quen)
-    const id = `habit-today-${habit.id}-${todayStr}`;
-    if (dismissedIds.includes(id)) return;
-
-    notifs.push({
-      id,
-      type: "habit",
-      icon: Flame,
-      iconColor: "#8B5CF6",
-      iconBg: "#F5F3FF",
-      title: `Thói quen: ${habit.name}`,
-      body: `Đừng quên check-in thói quen hôm nay để duy trì streak nhé!`,
-      time: "Hôm nay",
-      read: readIds.includes(id),
-      timestamp: nowMs - 1000 * 60,
-      targetPage: "habits",
+    // Sort: overdue → soonest first
+    list.sort((a, b) => {
+      if (a.type === "overdue" && b.type !== "overdue") return -1;
+      if (a.type !== "overdue" && b.type === "overdue") return 1;
+      return a.timestamp - b.timestamp;
     });
-  });
 
-  // Sort: Overdue first, then by timestamp ascending (earliest first)
-  notifs.sort((a, b) => {
-    if (a.type === "overdue" && b.type !== "overdue") return -1;
-    if (a.type !== "overdue" && b.type === "overdue") return 1;
-    return a.timestamp - b.timestamp;
-  });
+    // Debug: show results
+    console.log(`[NotifService] Generated ${list.length} notifs, ${list.filter(n => !n.read).length} unread`);
+    list.forEach(n => console.log(`  → [${n.read ? "READ" : "UNREAD"}] ${n.type}: ${n.title} (${n.id})`));
 
-  const unreadCount = notifs.filter((n) => !n.read).length;
+    return list;
+  }, [tasks, events, habits, readIds, dismissedIds, tick]);
 
-  const markRead = (id: string) => {
-    setReadIds((prev) => Array.from(new Set([...prev, id])));
-  };
+  /* ─ Derived values ─ */
+  const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
+  const unreadIds   = useMemo(() => notifs.filter((n) => !n.read).map((n) => n.id).join(","), [notifs]);
 
-  const markAllRead = () => {
-    const allIds = notifs.map((n) => n.id);
-    setReadIds((prev) => Array.from(new Set([...prev, ...allIds])));
-  };
+  /* ─ Actions ─ */
+  const markRead    = (id: string) => setReadIds((p) => Array.from(new Set([...p, id])).slice(-200));
+  const markAllRead = ()           => setReadIds((p) => Array.from(new Set([...p, ...notifs.map((n) => n.id)])).slice(-200));
+  const dismissNotif = (id: string) => setDismissedIds((p) => [...p, id].slice(-200));
 
-  const dismissNotif = (id: string) => {
-    setDismissedIds((prev) => [...prev, id]);
-  };
-
-  return {
-    notifs,
-    unreadCount,
-    markRead,
-    markAllRead,
-    dismissNotif,
-  };
+  return { notifs, unreadCount, unreadIds, markRead, markAllRead, dismissNotif };
 }

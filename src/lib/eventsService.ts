@@ -30,8 +30,11 @@ export async function addEvent(
   uid: string,
   event: Omit<CalEvent, "id" | "createdAt">
 ): Promise<string> {
+  const cleanEvent = Object.fromEntries(
+    Object.entries(event).filter(([_, v]) => v !== undefined)
+  );
   const ref = await addDoc(eventsRef(uid), {
-    ...event,
+    ...cleanEvent,
     createdAt: serverTimestamp(),
   });
   return ref.id;

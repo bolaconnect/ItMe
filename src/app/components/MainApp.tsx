@@ -14,6 +14,7 @@ import { CalendarPage } from "./CalendarPage";
 import { ProfilePage } from "./ProfilePage";
 import { EventsPage } from "./EventsPage";
 import { PasswordsPage } from "./PasswordsPage";
+import { ToastProvider } from "./ToastNotification";
 
 export type Page = "dashboard" | "tasks" | "goals" | "habits" | "finance" | "notes" | "passwords" | "calendar" | "events" | "profile";
 
@@ -47,6 +48,7 @@ export function MainApp() {
   const showCalToggle = CAL_TOGGLE_PAGES.includes(page) && !modalOpen;
 
   return (
+    <ToastProvider>
     <div className="size-full flex bg-background overflow-hidden">
       <Sidebar activePage={page} onNavigate={navigate} />
 
@@ -108,5 +110,6 @@ export function MainApp() {
         </>
       </div>
     </div>
+    </ToastProvider>
   );
 }

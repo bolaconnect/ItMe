@@ -34,8 +34,11 @@ export async function addTask(
   uid: string,
   task: Omit<Task, "id" | "createdAt">
 ): Promise<string> {
+  const cleanTask = Object.fromEntries(
+    Object.entries(task).filter(([_, v]) => v !== undefined)
+  );
   const ref = await addDoc(tasksRef(uid), {
-    ...task,
+    ...cleanTask,
     createdAt: serverTimestamp(),
   });
   return ref.id;
@@ -46,7 +49,10 @@ export async function updateTask(
   taskId: string,
   data: Partial<Omit<Task, "id" | "createdAt">>
 ): Promise<void> {
-  await updateDoc(taskDocRef(uid, taskId), data);
+  const cleanData = Object.fromEntries(
+    Object.entries(data).filter(([_, v]) => v !== undefined)
+  );
+  await updateDoc(taskDocRef(uid, taskId), cleanData);
 }
 
 export async function deleteTask(uid: string, taskId: string): Promise<void> {

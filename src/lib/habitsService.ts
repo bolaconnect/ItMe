@@ -34,8 +34,11 @@ export async function addHabit(
   uid: string,
   habit: Omit<Habit, "id" | "createdAt">
 ): Promise<string> {
+  const cleanHabit = Object.fromEntries(
+    Object.entries(habit).filter(([_, v]) => v !== undefined)
+  );
   const ref = await addDoc(habitsRef(uid), {
-    ...habit,
+    ...cleanHabit,
     createdAt: serverTimestamp(),
   });
   return ref.id;
@@ -46,7 +49,10 @@ export async function updateHabit(
   habitId: string,
   data: Partial<Omit<Habit, "id" | "createdAt">>
 ): Promise<void> {
-  await updateDoc(habitDocRef(uid, habitId), data);
+  const cleanData = Object.fromEntries(
+    Object.entries(data).filter(([_, v]) => v !== undefined)
+  );
+  await updateDoc(habitDocRef(uid, habitId), cleanData);
 }
 
 export async function deleteHabit(uid: string, habitId: string): Promise<void> {

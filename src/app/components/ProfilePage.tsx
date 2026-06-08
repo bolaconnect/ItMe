@@ -3,7 +3,7 @@ import {
   User, Star, TrendingUp, Heart, Bell, Moon, Sun,
   Shield, LogOut, ChevronRight, Edit3, Check, X,
   BookOpen, Target, Repeat2, Wallet, Camera, Activity,
-  Ruler, Weight, Droplets, Zap, LayoutTemplate,
+  Ruler, Weight, Droplets, Zap, LayoutTemplate, BellRing,
 } from "lucide-react";
 import { auth } from "../../lib/firebase";
 import { signOut } from "firebase/auth";
@@ -11,6 +11,8 @@ import { useAppStore } from "../store/useAppStore";
 import type { Page } from "./MainApp";
 import { subscribeSettings, updateSettings, updateUserProfileAuth, UserProfile, Setting, BodyMetrics } from "../../lib/settingsService";
 import { useEffect } from "react";
+import * as webNotif from "../../lib/webNotificationService";
+import { useToast } from "./ToastNotification";
 
 /* ── Mock Fallbacks ── */
 const INITIAL_PROFILE: UserProfile = {
@@ -289,6 +291,11 @@ export function ProfilePage({
   const [metrics,      setMetrics]      = useState<BodyMetrics>(INITIAL_METRICS);
   const [editMetrics,  setEditMetrics]  = useState(false);
   const [editNav,      setEditNav]      = useState(false);
+  const [webPushEnabled, setWebPushEnabledState] = useState(() => webNotif.isEnabled());
+  const [webPushPermission, setWebPushPermission] = useState<string>(() =>
+    webNotif.isSupported() ? webNotif.getPermission() : "unsupported"
+  );
+  const { showToast } = useToast();
 
   const { bottomNavTabs, setBottomNavTabs, tasks, habits, goals } = useAppStore();
   const uid = auth.currentUser?.uid;
@@ -338,6 +345,22 @@ export function ProfilePage({
     const newSettings = settings.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s);
     setSettings(newSettings);
     if (uid) updateSettings(uid, { preferences: newSettings });
+  }
+
+  async function toggleWebPush() {
+    if (!webNotif.isSupported()) return;
+
+    if (!webPushEnabled) {
+      const perm = await webNotif.requestPermission();
+      setWebPushPermission(perm);
+      if (perm === "granted") {
+        webNotif.setEnabled(true);
+        setWebPushEnabledState(true);
+      }
+    } else {
+      webNotif.setEnabled(false);
+      setWebPushEnabledState(false);
+    }
   }
 
   return (
@@ -489,6 +512,58 @@ export function ProfilePage({
             <Bell size={15} className="text-muted-foreground" />
             <p className="text-foreground" style={{ fontWeight: 700, fontSize: "0.875rem" }}>Thông báo</p>
           </div>
+
+          {/* Web Push Toggle */}
+          {webNotif.isSupported() && (
+            <div className="border-b border-border">
+              <div className="flex items-center gap-3 px-4 py-3.5">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                  style={{ background: webPushEnabled ? "#EFF6FF" : "var(--muted)" }}>
+                  <BellRing size={17} style={{ color: webPushEnabled ? "#3B82F6" : "var(--muted-foreground)" }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-foreground" style={{ fontWeight: 600, fontSize: "0.875rem" }}>
+                    Thông báo đẩy trên trình duyệt
+                  </p>
+                  <p className="text-muted-foreground" style={{ fontSize: "0.775rem" }}>
+                    {webPushPermission === "denied"
+                      ? "Đã bị chặn — vui lòng mở lại trong cài đặt trình duyệt"
+                      : webPushEnabled
+                      ? "Đang bật — nhận thông báo khi có deadline, sự kiện sắp đến"
+                      : "Bật để nhận thông báo đẩy ngay trên thiết bị"}
+                  </p>
+                </div>
+                <Toggle
+                  enabled={webPushEnabled}
+                  onChange={toggleWebPush}
+                />
+              </div>
+              {webPushEnabled && (
+                <div className="px-4 pb-3">
+                  <button
+                    onClick={() => {
+                      // Try browser notification
+                      webNotif.sendTest();
+                      // Always show in-app toast as visual feedback
+                      showToast({
+                        type: "success",
+                        title: "Thông báo thử thành công!",
+                        body: "🎉 Bạn sẽ nhận thông báo khi có deadline, sự kiện sắp đến, hoặc thói quen chưa hoàn thành.",
+                      });
+                    }}
+                    className="w-full py-2 rounded-xl text-sm font-semibold transition-colors"
+                    style={{
+                      background: "var(--secondary)",
+                      color: "var(--primary)",
+                    }}
+                  >
+                    🔔 Thử gửi thông báo
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {settings.map((s, i) => (
             <div
               key={s.id}

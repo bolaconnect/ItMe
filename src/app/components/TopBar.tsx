@@ -1,71 +1,65 @@
-import { Bell, Search, User, X, Check, Clock, Flame, AlertTriangle, Calendar } from "lucide-react";
+import { Bell, Search, User, X } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { Page } from "./MainApp";
 import { auth } from "../../lib/firebase";
 import { useCalculatedNotifications } from "../../lib/notificationsService";
+import { useNotificationAlerts } from "./useNotificationAlerts";
+
+/* ── Page titles & greetings ── */
 
 const titles: Record<Page, string> = {
-  dashboard: "Tổng quan",
-  tasks:     "Công việc",
-  goals:     "Mục tiêu",
-  habits:    "Thói quen",
-  finance:   "Tài chính",
-  notes:     "Ghi chú",
-  passwords: "Mật khẩu",
-  calendar:  "Lịch",
-  events:    "Sự kiện",
-  profile:   "Bản thân",
+  dashboard: "Tổng quan", tasks: "Công việc", goals: "Mục tiêu",
+  habits: "Thói quen", finance: "Tài chính", notes: "Ghi chú",
+  passwords: "Mật khẩu", calendar: "Lịch", events: "Sự kiện", profile: "Bản thân",
 };
 
 const greetings: Record<Page, string> = {
-  dashboard: "Chào buổi sáng, Văn A! ☀️",
-  tasks:     "Hãy hoàn thành từng việc một.",
-  goals:     "Mỗi ngày tiến thêm một bước.",
-  habits:    "Kiên trì tạo nên sự khác biệt.",
-  finance:   "Quản lý tiền bạc thông minh.",
-  notes:     "Ghi lại mọi ý tưởng hay.",
-  passwords: "Quản lý tài khoản an toàn.",
-  calendar:  "Lên kế hoạch, chủ động mỗi ngày.",
-  events:    "Theo dõi các sự kiện sắp tới.",
-  profile:   "Phát triển bản thân mỗi ngày.",
+  dashboard: "Chào buổi sáng, Văn A! ☀️", tasks: "Hãy hoàn thành từng việc một.",
+  goals: "Mỗi ngày tiến thêm một bước.", habits: "Kiên trì tạo nên sự khác biệt.",
+  finance: "Quản lý tiền bạc thông minh.", notes: "Ghi lại mọi ý tưởng hay.",
+  passwords: "Quản lý tài khoản an toàn.", calendar: "Lên kế hoạch, chủ động mỗi ngày.",
+  events: "Theo dõi các sự kiện sắp tới.", profile: "Phát triển bản thân mỗi ngày.",
 };
 
-export function TopBar({
-  activePage,
-  onNavigate,
-}: {
-  activePage: Page;
-  onNavigate: (p: Page) => void;
-}) {
-  const [searchOpen, setSearchOpen]     = useState(false);
-  const [searchQuery, setSearchQuery]   = useState("");
-  const [notifOpen, setNotifOpen]       = useState(false);
-  const notifRef                        = useRef<HTMLDivElement>(null);
-  const searchRef                       = useRef<HTMLDivElement>(null);
+const URGENCY_LABELS: Record<string, { text: string; color: string }> = {
+  overdue:  { text: "Khẩn cấp",  color: "#EF4444" },
+  upcoming: { text: "Quan trọng", color: "#F59E0B" },
+  event:    { text: "Sự kiện",   color: "#3B82F6" },
+  habit:    { text: "Thói quen", color: "#8B5CF6" },
+};
 
+/* ── Component ── */
+
+export function TopBar({ activePage, onNavigate }: { activePage: Page; onNavigate: (p: Page) => void }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [notifOpen, setNotifOpen]   = useState(false);
+  const notifRef  = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  // Data
   const uid = auth.currentUser?.uid;
-  const { notifs, unreadCount: unread, markRead, markAllRead, dismissNotif } = useCalculatedNotifications(uid);
+  const { notifs, unreadCount, unreadIds, markRead, markAllRead, dismissNotif } = useCalculatedNotifications(uid);
+
+  // Side-effects: toast + web push (handled by dedicated hook)
+  useNotificationAlerts(notifs, unreadIds, markRead, onNavigate);
+
+  // Click outside to close
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) { setSearchOpen(false); setSearchQuery(""); }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
 
   function handleNotifClick(n: typeof notifs[number]) {
     markRead(n.id);
     onNavigate(n.targetPage);
     setNotifOpen(false);
   }
-
-  useEffect(() => {
-    function handle(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setNotifOpen(false);
-      }
-      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
-        setSearchOpen(false);
-        setSearchQuery("");
-      }
-    }
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, []);
 
   return (
     <header className="flex items-center justify-between px-4 lg:px-6 py-3.5 bg-card border-b border-border gap-3">
@@ -79,7 +73,7 @@ export function TopBar({
       </div>
 
       <div className="flex items-center gap-2 shrink-0">
-        {/* Search */}
+        {/* ── Search ── */}
         <div ref={searchRef} className="relative">
           <div
             className={`flex items-center gap-2 rounded-xl bg-muted transition-all duration-200 ${
@@ -89,27 +83,22 @@ export function TopBar({
           >
             <Search size={15} className="text-muted-foreground shrink-0" />
             {searchOpen && (
-              <input
-                autoFocus
-                type="text"
-                value={searchQuery}
+              <input autoFocus type="text" value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder="Tìm kiếm..."
                 className="bg-transparent outline-none text-sm text-foreground placeholder:text-muted-foreground w-full"
               />
             )}
             {searchOpen && searchQuery && (
-              <button
-                onClick={e => { e.stopPropagation(); setSearchQuery(""); }}
-                className="text-muted-foreground hover:text-foreground shrink-0"
-              >
+              <button onClick={e => { e.stopPropagation(); setSearchQuery(""); }}
+                className="text-muted-foreground hover:text-foreground shrink-0">
                 <X size={13} />
               </button>
             )}
           </div>
         </div>
 
-        {/* Notifications */}
+        {/* ── Notifications bell ── */}
         <div ref={notifRef} className="relative">
           <button
             onClick={() => setNotifOpen(o => !o)}
@@ -118,11 +107,12 @@ export function TopBar({
             }`}
           >
             <Bell size={16} />
-            {unread > 0 && (
+            {unreadCount > 0 && (
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent border-2 border-card" />
             )}
           </button>
 
+          {/* ── Dropdown ── */}
           <AnimatePresence>
             {notifOpen && (
               <motion.div
@@ -135,18 +125,16 @@ export function TopBar({
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <span className="text-foreground" style={{ fontWeight: 700, fontSize: "0.9375rem" }}>
-                    Thông báo {unread > 0 && (
+                    Thông báo {unreadCount > 0 && (
                       <span className="ml-1 px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground" style={{ fontSize: "0.65rem", fontWeight: 700 }}>
-                        {unread}
+                        {unreadCount}
                       </span>
                     )}
                   </span>
-                  {unread > 0 && (
-                    <button
-                      onClick={markAllRead}
+                  {unreadCount > 0 && (
+                    <button onClick={markAllRead}
                       className="text-primary hover:opacity-80 transition-opacity"
-                      style={{ fontSize: "0.78rem", fontWeight: 600 }}
-                    >
+                      style={{ fontSize: "0.78rem", fontWeight: 600 }}>
                       Đọc tất cả
                     </button>
                   )}
@@ -160,16 +148,9 @@ export function TopBar({
                       <p className="text-muted-foreground" style={{ fontSize: "0.875rem" }}>Không có thông báo</p>
                     </div>
                   ) : notifs.map(n => {
-                    const urgencyLabel = n.type === "overdue"
-                      ? { text: "Khẩn cấp", color: "#EF4444" }
-                      : n.type === "upcoming"
-                      ? { text: "Quan trọng", color: "#F59E0B" }
-                      : n.type === "event"
-                      ? { text: "Sự kiện", color: "#3B82F6" }
-                      : { text: "Thói quen", color: "#8B5CF6" };
+                    const label = URGENCY_LABELS[n.type] || URGENCY_LABELS.upcoming;
                     return (
-                      <div
-                        key={n.id}
+                      <div key={n.id}
                         className={`flex items-start gap-3 px-4 py-3 border-b border-border last:border-0 transition-colors cursor-pointer group ${
                           !n.read ? "bg-primary/5 hover:bg-primary/10" : "hover:bg-muted/40"
                         }`}
@@ -183,24 +164,18 @@ export function TopBar({
                             <p className="text-foreground truncate" style={{ fontWeight: n.read ? 500 : 700, fontSize: "0.8125rem" }}>
                               {n.title}
                             </p>
-                            <button
-                              onClick={e => { e.stopPropagation(); dismissNotif(n.id); }}
-                              className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
+                            <button onClick={e => { e.stopPropagation(); dismissNotif(n.id); }}
+                              className="text-muted-foreground hover:text-foreground flex-shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                               <X size={12} />
                             </button>
                           </div>
                           <p className="text-muted-foreground mt-0.5 leading-snug" style={{ fontSize: "0.75rem" }}>{n.body}</p>
                           <div className="flex items-center gap-2 mt-1">
-                            <span style={{ fontSize: "0.65rem", fontWeight: 700, color: urgencyLabel.color }}>
-                              {urgencyLabel.text}
-                            </span>
+                            <span style={{ fontSize: "0.65rem", fontWeight: 700, color: label.color }}>{label.text}</span>
                             <span className="text-muted-foreground opacity-60" style={{ fontSize: "0.65rem" }}>{n.time}</span>
                           </div>
                         </div>
-                        {!n.read && (
-                          <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />
-                        )}
+                        {!n.read && <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0 mt-2" />}
                       </div>
                     );
                   })}
@@ -210,15 +185,13 @@ export function TopBar({
           </AnimatePresence>
         </div>
 
-        {/* Avatar — profile shortcut */}
-        <button
-          onClick={() => onNavigate("profile")}
+        {/* ── Avatar ── */}
+        <button onClick={() => onNavigate("profile")}
           className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors ${
             activePage === "profile"
               ? "bg-primary text-primary-foreground"
               : "bg-secondary text-secondary-foreground hover:bg-primary/10 hover:text-primary"
-          }`}
-        >
+          }`}>
           <User size={15} />
         </button>
       </div>
