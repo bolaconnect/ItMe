@@ -90,10 +90,36 @@ export function EventForm({
   const [icon, setIcon]         = useState<HabitIcon>("sun");
   const [color, setColor]       = useState("var(--primary)");
   const [frequency, setFreq]    = useState<Frequency>("daily");
+  const [err, setErr]           = useState("");
+
+  // Xoá lỗi khi người dùng thay đổi dữ liệu đầu vào
+  useEffect(() => {
+    setErr("");
+  }, [type, title, date, time, endTime]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+
+    if (type !== "habit") {
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      if (date < todayStr) {
+        setErr("Không thể chọn ngày trong quá khứ");
+        return;
+      }
+      if (date === todayStr && time) {
+        const currentHHmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        if (time < currentHHmm) {
+          setErr("Không thể chọn thời gian trong quá khứ");
+          return;
+        }
+      }
+      if (type === "event" && endTime && time && endTime < time) {
+        setErr("Giờ kết thúc không thể trước giờ bắt đầu");
+        return;
+      }
+    }
 
     if (type === "event") {
       onSaveEvent({
@@ -173,7 +199,7 @@ export function EventForm({
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-3 sm:col-span-1">
                     <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>Ngày</label>
-                    <input className="input-base" type="date" value={date} onChange={e => setDate(e.target.value)} />
+                    <input className="input-base" type="date" value={date} onChange={e => setDate(e.target.value)} min={TODAY} />
                   </div>
                   <div>
                     <label className="block text-foreground mb-1.5" style={{ fontSize: "0.8125rem", fontWeight: 600 }}>{type === "task" ? "Giờ hạn" : "Bắt đầu"}</label>
@@ -289,6 +315,7 @@ export function EventForm({
             </motion.div>
           </AnimatePresence>
 
+          {err && <p className="text-xs text-destructive text-center mt-1 mb-2 font-medium">{err}</p>}
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 rounded-xl bg-muted text-foreground" style={{ fontWeight: 600, fontSize: "0.875rem" }}>

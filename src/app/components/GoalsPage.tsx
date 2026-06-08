@@ -56,10 +56,21 @@ function GoalForm({
   const [current, setCurrent]   = useState(String(initial?.current ?? "0"));
   const [unit, setUnit]         = useState(initial?.unit ?? "");
   const [deadline, setDeadline] = useState(initial?.deadline ?? today);
+  const [err, setErr]           = useState("");
+
+  useEffect(() => {
+    setErr("");
+  }, [title, deadline]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !target) return;
+
+    if (!initial?.id && deadline < today) {
+      setErr("Hạn chót không thể ở trong quá khứ");
+      return;
+    }
+
     onSave({
       id: initial?.id, // Có thể undefined nếu là thêm mới
       title: title.trim(),
@@ -156,9 +167,11 @@ function GoalForm({
             <input
               className="input-base" type="date"
               value={deadline} onChange={e => setDeadline(e.target.value)}
+              min={today}
             />
           </div>
 
+          {err && <p className="text-xs text-destructive text-center mt-1 mb-2 font-medium">{err}</p>}
           <div className="flex gap-2 pt-1">
             <button type="button" onClick={onClose}
               className="flex-1 py-2.5 rounded-xl bg-muted text-foreground hover:bg-muted/80 transition-colors"

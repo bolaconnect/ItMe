@@ -35,9 +35,30 @@ export function TaskForm({ open, editing, onClose, onSave, onDelete, tasks, defa
     }
   }, [open, editing, defaultDate]);
 
+  useEffect(() => {
+    setErr("");
+  }, [title, dueDate, dueTime]);
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) { setErr("Nhập tên công việc"); return; }
+
+    if (!editing && dueDate) {
+      const now = new Date();
+      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      if (dueDate < todayStr) {
+        setErr("Không thể chọn ngày trong quá khứ");
+        return;
+      }
+      if (dueDate === todayStr && dueTime) {
+        const currentHHmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        if (dueTime < currentHHmm) {
+          setErr("Không thể chọn thời gian trong quá khứ");
+          return;
+        }
+      }
+    }
+
     onSave({
       id:          editing?.id, // Có thể undefined nếu thêm mới
       title:       title.trim(),
@@ -110,7 +131,7 @@ export function TaskForm({ open, editing, onClose, onSave, onDelete, tasks, defa
         {/* Due date + time */}
         <div className="grid grid-cols-2 gap-3">
           <FormField label="Ngày hết hạn">
-            <FormInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+            <FormInput type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} min={new Date().toISOString().split("T")[0]} />
           </FormField>
           <FormField label="Giờ">
             <FormInput type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} />

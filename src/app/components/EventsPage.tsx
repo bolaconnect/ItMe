@@ -39,14 +39,28 @@ export function EventsPage() {
 
   // Sort and filter events
   const upcomingEvents = useMemo(() => {
+    const now = new Date();
+    const currentHHmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    
     return combinedEvents
-      .filter(e => e.date >= TODAY)
+      .filter(e => {
+        if (e.date < TODAY) return false;
+        if (e.date === TODAY && e.time && e.time < currentHHmm) return false;
+        return true;
+      })
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""));
   }, [combinedEvents]);
 
   const pastEvents = useMemo(() => {
+    const now = new Date();
+    const currentHHmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    
     return combinedEvents
-      .filter(e => e.date < TODAY)
+      .filter(e => {
+        if (e.date < TODAY) return true;
+        if (e.date === TODAY && e.time && e.time < currentHHmm) return true;
+        return false;
+      })
       .sort((a, b) => b.date.localeCompare(a.date) || (b.time || "").localeCompare(a.time || ""));
   }, [combinedEvents]);
 
