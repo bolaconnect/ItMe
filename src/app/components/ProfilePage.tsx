@@ -17,6 +17,7 @@ import { requestFCMToken, removeFCMToken } from "../../lib/fcmService";
 import { PinLockScreen } from "./PasswordsPage";
 import { AnimatePresence } from "motion/react";
 import { sendOtpEmail } from "../../lib/emailService";
+import { exportAllUserData } from "../utils/exportData";
 
 /* ── Mock Fallbacks ── */
 const INITIAL_PROFILE: UserProfile = {
@@ -350,10 +351,12 @@ export function ProfilePage({
   onNavigate,
   darkMode = false,
   onToggleDark,
+  onShowOnboarding,
 }: {
   onNavigate?: (p: string) => void;
   darkMode?: boolean;
   onToggleDark?: () => void;
+  onShowOnboarding?: () => void;
 }) {
   const [profile,      setProfile]      = useState<UserProfile>(INITIAL_PROFILE);
   const [settings,     setSettings]     = useState<Setting[]>(INITIAL_SETTINGS);
@@ -471,19 +474,7 @@ export function ProfilePage({
     setActionLoading(true);
     try {
       const uid = auth.currentUser.uid;
-      const exportData: any = {};
-      const cols = ["tasks", "habits", "goals", "events", "notes", "passwords", "income", "expense"];
-      for (const c of cols) {
-        const snap = await getDocs(collection(db, "users", uid, c));
-        exportData[c] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      }
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `ItMe_Export_${new Date().toISOString().slice(0,10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await exportAllUserData(uid);
       showToast("Tải xuống thành công!", "success");
       setActiveAction(null);
     } catch (err: any) {
@@ -810,6 +801,7 @@ export function ProfilePage({
             { label: "Đổi mật khẩu",   sub: "Cập nhật mật khẩu đăng nhập", onClick: () => setActiveAction("password") },
             { label: "Đổi mã PIN",     sub: "Cập nhật mã PIN kho mật khẩu", onClick: () => setActiveAction("pin") },
             { label: "Xuất dữ liệu",    sub: "Tải về toàn bộ dữ liệu của bạn", onClick: () => setActiveAction("export") },
+            { label: "Xem hướng dẫn",   sub: "Xem lại slide giới thiệu tính năng", onClick: () => onShowOnboarding?.() },
             { label: "Quyền riêng tư",  sub: "Quản lý dữ liệu và quyền truy cập", onClick: () => setActiveAction("privacy") },
           ].map(({ label, sub, onClick }, i, arr) => (
             <button key={label} onClick={onClick}

@@ -65,6 +65,13 @@ interface AppState {
 
   settings: UserSettingsData;
   setSettings: (updater: UserSettingsData | ((prev: UserSettingsData) => UserSettingsData)) => void;
+
+  /* ── Pomodoro State ── */
+  pomodoroMode: "work" | "break" | "longBreak";
+  pomodoroTimeLeft: number;
+  pomodoroIsRunning: boolean;
+  pomodoroActiveTaskId: string | null;
+  setPomodoroState: (updater: Partial<Pick<AppState, "pomodoroMode" | "pomodoroTimeLeft" | "pomodoroIsRunning" | "pomodoroActiveTaskId">> | ((prev: Pick<AppState, "pomodoroMode" | "pomodoroTimeLeft" | "pomodoroIsRunning" | "pomodoroActiveTaskId">) => Partial<Pick<AppState, "pomodoroMode" | "pomodoroTimeLeft" | "pomodoroIsRunning" | "pomodoroActiveTaskId">>)) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -95,6 +102,21 @@ export const useAppStore = create<AppState>((set) => ({
   setSettings: (updater) => set((state) => ({
     settings: typeof updater === "function" ? updater(state.settings) : updater,
   })),
+
+  pomodoroMode: "work",
+  pomodoroTimeLeft: 25 * 60,
+  pomodoroIsRunning: false,
+  pomodoroActiveTaskId: null,
+  setPomodoroState: (updater) => set((state) => {
+    const current = {
+      pomodoroMode: state.pomodoroMode,
+      pomodoroTimeLeft: state.pomodoroTimeLeft,
+      pomodoroIsRunning: state.pomodoroIsRunning,
+      pomodoroActiveTaskId: state.pomodoroActiveTaskId,
+    };
+    const next = typeof updater === "function" ? updater(current) : updater;
+    return next;
+  }),
 }));
 
 export function getRecoveryInfo(habits: Habit[], goals: Goal[], settings: UserSettingsData) {

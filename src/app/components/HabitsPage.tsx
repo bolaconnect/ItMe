@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { LunarCountdownBadge } from "./LunarCountdown";
 import { StreakRecoveryModal } from "./StreakRecoveryModal";
 import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis
+} from "recharts";
+import {
   Plus, Flame, CheckCircle2, Circle, MoreHorizontal,
   Pencil, Trash2, X, Trophy, TrendingUp, Zap, RotateCcw, ShieldPlus,
   Sun, Moon, Coffee, Dumbbell, Book, Heart, Droplets, Music,
@@ -392,6 +395,24 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter]     = useState<"all" | "done" | "pending">("all");
   const [recoveryItemId, setRecoveryItemId] = useState<string | null>(null);
+  const [chartOpen, setChartOpen] = useState(false);
+
+  const last7DaysData = useMemo(() => {
+    const past7 = getPast7Days();
+    const VN_DAYS = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+    return past7.map(dateStr => {
+      const d = new Date(dateStr);
+      const dayName = VN_DAYS[d.getDay()];
+      const scheduled = habits.filter(h => isHabitScheduledForToday(h, dateStr));
+      const completed = scheduled.filter(h => h.completedDates.includes(dateStr));
+      const pct = scheduled.length > 0 ? Math.round((completed.length / scheduled.length) * 100) : 0;
+      return {
+        date: dateStr,
+        day: dayName,
+        "Tỉ lệ": pct
+      };
+    });
+  }, [habits]);
 
   const uid = auth.currentUser?.uid;
 
@@ -501,6 +522,44 @@ export function HabitsPage({ onModal }: { onModal?: (open: boolean) => void }) {
                 transition={{ duration: 0.8, ease: "easeOut" }}
               />
             </div>
+          </div>
+
+          {/* Collapsible Trend Chart */}
+          <div className="bg-card border border-border rounded-2xl p-4">
+            <button 
+              onClick={() => setChartOpen(!chartOpen)}
+              className="flex items-center justify-between w-full text-xs font-semibold text-foreground cursor-pointer select-none"
+            >
+              <span className="flex items-center gap-1.5">📊 Hiệu suất hoàn thành (7 ngày qua)</span>
+              <span className="text-primary text-[11px] font-bold">{chartOpen ? "Thu gọn" : "Xem chi tiết"}</span>
+            </button>
+            
+            <AnimatePresence initial={false}>
+              {chartOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0, marginTop: 0 }}
+                  animate={{ height: "auto", opacity: 1, marginTop: 12 }}
+                  exit={{ height: 0, opacity: 0, marginTop: 0 }}
+                  className="overflow-hidden"
+                >
+                  <div className="h-28 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={last7DaysData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="habitRate" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.2}/>
+                            <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
+                        <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} tickFormatter={v => `${v}%`} />
+                        <Area type="monotone" dataKey="Tỉ lệ" stroke="var(--primary)" strokeWidth={1.5} fill="url(#habitRate)" dot={{ r: 2, fill: "var(--primary)" }} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Filter tabs */}

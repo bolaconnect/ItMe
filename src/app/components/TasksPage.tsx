@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, CheckCircle2, Circle, Clock, Flag, Search, X, SlidersHorizontal, Loader2 } from "lucide-react";
+import { Plus, CheckCircle2, Circle, Clock, Flag, Search, X, SlidersHorizontal, Loader2, Brain } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { TaskForm } from "./tasks/TaskForm";
 import { PRIORITY_COLOR, PRIORITY_BG, groupTasks } from "./tasks/taskData";
@@ -354,6 +354,7 @@ export function TasksPage({ onModal }: { onModal?: (open: boolean) => void }) {
 /* ── Task item ── */
 function TaskItem({ task, onToggle, onEdit }: { task: Task; onToggle: () => void; onEdit: () => void }) {
   const isOverdue = !task.done && task.dueDate && task.dueDate < new Date().toLocaleDateString("en-CA");
+  const { pomodoroIsRunning, pomodoroActiveTaskId, setPomodoroState } = useAppStore();
 
   return (
     <motion.li
@@ -402,6 +403,33 @@ function TaskItem({ task, onToggle, onEdit }: { task: Task; onToggle: () => void
           )}
         </div>
       </div>
+
+      {/* Focus (Pomodoro) Button */}
+      {!task.done && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (pomodoroActiveTaskId === task.id && pomodoroIsRunning) {
+              setPomodoroState({ pomodoroIsRunning: false });
+            } else {
+              setPomodoroState({
+                pomodoroActiveTaskId: task.id,
+                pomodoroMode: "work",
+                pomodoroTimeLeft: 25 * 60,
+                pomodoroIsRunning: true,
+              });
+            }
+          }}
+          className={`shrink-0 mt-0.5 p-1 rounded-lg transition-all active:scale-95 ${
+            pomodoroActiveTaskId === task.id && pomodoroIsRunning
+              ? "text-primary bg-primary/10"
+              : "text-muted-foreground hover:text-primary hover:bg-muted"
+          }`}
+          title="Tập trung vào việc này"
+        >
+          <Brain size={14} className={pomodoroActiveTaskId === task.id && pomodoroIsRunning ? "animate-pulse" : ""} />
+        </button>
+      )}
 
       {/* Priority dot */}
       <span
